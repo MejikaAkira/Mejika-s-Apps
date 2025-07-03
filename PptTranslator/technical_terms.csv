@@ -1,0 +1,84 @@
+type,pattern,replacement
+term,Simcenter,Simcenter
+term,Simcenter Testlab,Simcenter Testlab
+term,Simcenter Testlab Schedule,Simcenter Testlab Schedule
+term,Designer,Designer
+term,Scheduling,Scheduling
+term,3rd party,3rd party
+term,Simcenter Test.Lab,Simcenter Test.Lab
+term,Simcenter Testlab Process Designer,Simcenter Testlab Process Designer
+term,Simcenter Test.Lab Process Designer,Simcenter Test.Lab Process Designer
+term,Testlab,Testlab
+term,Test.Lab,Test.Lab
+term,Process Designer,Process Designer
+term,SCADAS RS,SCADAS RS
+term,Recorder,Recorder
+term,Testlab Data Management,Testlab Data Management
+term,Test.Lab Data Management,Test.Lab Data Management
+term,Testlab Workflow Automation,Testlab Workflow Automation
+term,Test.Lab Workflow Automation,Test.Lab Workflow Automation
+term,NVH,NVH
+term,E-motor,E-motor
+term,BEV,BEV
+term,PHEV,PHEV
+term,ICE,ICE
+term,CAE,CAE
+term,FEM,FEM
+term,BEM,BEM
+term,CFD,CFD
+term,Computational Fluid Dynamics,CFD
+term,Siemens Digital Industries Software,Siemens Digital Industries Software
+term,Siemens DI SW,Siemens Digital Industries Software
+replace,2606,2606
+replace,2506,2506
+replace,2406,2406
+replace,2306,2306
+replace,2206,2206
+replace,Virtual Shaker,バーチャルシェイカー
+replace,Ch,チャンネル
+replace,Testing,試験
+replace,Electrified,電動化
+replace,Electric motor,E-motor
+replace,Battery Electric Vehicle,BEV
+replace,Plug-in Hybrid Electric Vehicle,PHEV
+replace,Internal Combustion Engine,ICE
+replace,Computer-Aided Engineering,CAE
+replace,Finite Element Method,FEM
+replace,Boundary Element Method,BEM
+replace,ノイズ、振動、ハーシュネス,NVH
+replace,ノイズ振動ハーシュネス,NVH
+replace,電気自動車,BEV
+replace,プラグインハイブリッド車,PHEV
+replace,内燃機関,ICE
+replace,することが可能です,できます
+replace,することが可能になります,できます
+replace,する必要があります,してください
+replace,と考えられます,と考えられます
+replace,であると言えます,です
+replace,するための,用の
+replace,によってされます,がします
+replace,の観点から見ると,では
+replace,という観点で,で
+replace,という点で,で
+replace,ないわけではありません,ます
+replace,を目的として,のため
+replace,である。,です。
+replace,である,,です,
+replace,である ,です 
+replace,である$,です
+replace,することができます,できます
+replace,することが可能です,できます
+replace,する必要があります,してください
+replace,電気モーターのNVH,E-モーターのNVH
+replace,電気モーターNVH,E-モーターのNVH
+replace,パーセント,%
+remove,以下の翻訳結果です,
+remove,This is the translation result,
+remove,翻訳結果,
+remove,Result of translation,
+remove,Output,
+remove,Result,
+remove,以下の内容を翻訳してください,
+remove,Please translate the following,
+remove,•,
+remove,✓,

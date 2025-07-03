@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoPptAgent - PowerPoint 処理ツール</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 2em;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+        .container {
+            background-color: #fff;
+            padding: 2em;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            max-width: 600px;
+            margin: auto;
+        }
+        h1 {
+            color: #4a4a4a;
+            text-align: center;
+            margin-bottom: 1em;
+        }
+        form {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        input[type="file"] {
+            margin-bottom: 1em;
+            border: 1px solid #ccc;
+            padding: 0.5em;
+            border-radius: 4px;
+            width: 90%; /* Slightly less than container width */
+            max-width: 400px;
+        }
+        button {
+            padding: 0.75em 1.5em;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .instructions {
+            text-align: center;
+            margin-bottom: 1.5em;
+            color: #555;
+        }
+        #status {
+            text-align: center;
+            margin-top: 1em;
+            font-weight: bold;
+            min-height: 1.5em;
+        }
+        .progress-container {
+            width: 90%;
+            max-width: 400px;
+            margin: 1em auto;
+            display: none;
+        }
+        progress {
+            width: 100%;
+            height: 20px;
+        }
+        #progress-text {
+            text-align: center;
+            font-size: 0.9em;
+            margin-top: 0.5em;
+        }
+        .processing-details {
+            margin-top: 1em;
+            padding: 1em;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            font-size: 0.9em;
+            display: none;
+        }
+        .processing-details h3 {
+            margin-top: 0;
+            font-size: 1em;
+            color: #555;
+        }
+        .processing-details p {
+            margin: 0.5em 0;
+        }
+    </style>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const logBtn = document.getElementById('log-toggle-btn');
+        const logArea = document.getElementById('log-area');
+        const logContent = document.getElementById('log-content');
+        const reloadBtn = document.getElementById('log-reload-btn');
+        const uploadForm = document.getElementById('upload-form');
+        const statusDiv = document.getElementById('status');
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        const submitBtn = document.getElementById('submit-btn');
+        const processingDetails = document.getElementById('processing-details');
+        const currentStage = document.getElementById('current-stage');
+        const currentFile = document.getElementById('current-file');
+        const slideProgress = document.getElementById('slide-progress');
+        const textProgress = document.getElementById('text-progress');
+        
+        if (logBtn) {
+            logBtn.addEventListener('click', function() {
+                if (logArea.style.display === 'none') {
+                    logArea.style.display = 'block';
+                    fetchLogs();
+                } else {
+                    logArea.style.display = 'none';
+                }
+            });
+        }
+        
+        if (reloadBtn) {
+            reloadBtn.addEventListener('click', fetchLogs);
+        }
+        
+        function fetchLogs() {
+            fetch('/logs').then(r => r.json()).then(data => {
+                logContent.textContent = data.logs.join('\n');
+                // 自動スクロールを最下部に
+                logContent.scrollTop = logContent.scrollHeight;
+            });
+        }
+        
+        // 定期的にログを更新
+        setInterval(fetchLogs, 5000);
+        
+        // ファイルアップロードのAJAX処理
+        if (uploadForm) {
+            uploadForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                uploadFile();
+            });
+        }
+        
+        function setStatus(message) {
+            if (statusDiv) statusDiv.textContent = message;
+        }
+        
+        // WebSocket接続の代わりに、定期的に状態を取得する
+        function startStatusPolling() {
+            // 初期状態を確認
+            checkStatus();
+            
+            // 3秒ごとに状態を更新
+            setInterval(checkStatus, 3000);
+        }
+
+        // 処理状態を取得
+        async function checkStatus() {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+                updateProcessingStatus(data);
+            } catch (error) {
+                console.error('状態取得エラー:', error);
+            }
+        }
+        
+        // 処理状態の表示を更新
+        function updateProcessingStatus(data) {
+            if (data.is_processing) {
+                submitBtn.disabled = true;
+                progressContainer.style.display = 'block';
+                processingDetails.style.display = 'block';
+                
+                progressBar.value = data.progress;
+                progressText.textContent = `${data.progress.toFixed(1)}% - ${data.message}`;
+                
+                currentStage.textContent = getStageText(data.stage);
+                currentFile.textContent = data.current_file;
+                slideProgress.textContent = `${data.current_slide} / ${data.total_slides}`;
+                textProgress.textContent = `${data.translated_texts} / ${data.total_texts}`;
+                
+                statusDiv.textContent = data.message;
+            } else {
+                if (data.stage === 'completed') {
+                    statusDiv.textContent = '処理が完了しました！';
+                    progressBar.value = 100;
+                    progressText.textContent = '100% - 完了';
+                } else if (data.stage === 'error') {
+                    statusDiv.textContent = data.message;
+                }
+                
+                submitBtn.disabled = false;
+            }
+        }
+        
+        // 処理ステージのテキスト表示を取得
+        function getStageText(stage) {
+            const stageMap = {
+                'idle': '待機中',
+                'loading': 'ファイル読み込み中',
+                'extracting': 'テキスト抽出中',
+                'translating': '翻訳中',
+                'summarizing': 'サマリー生成中',
+                'saving': '保存中',
+                'completed': '完了',
+                'error': 'エラー'
+            };
+            return stageMap[stage] || stage;
+        }
+        
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('ファイルを選択してください');
+                return;
+            }
+            
+            // ファイルサイズチェック
+            if (file.size > 500 * 1024 * 1024) { // 500MB
+                alert('ファイルサイズが大きすぎます（最大500MB）');
+                return;
+            }
+            
+            // 大きなファイルの警告
+            if (file.size > 50 * 1024 * 1024) { // 50MB以上
+                if (!confirm('大きなファイルの処理には時間がかかる場合があります。続行しますか？')) {
+                    return;
+                }
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            setStatus('アップロード中...');
+            submitBtn.disabled = true;
+            progressContainer.style.display = 'block';
+            processingDetails.style.display = 'block';
+            progressBar.value = 0;
+            progressText.textContent = '0% - アップロード中...';
+            
+            try {
+                // アップロード進捗を監視
+                const xhr = new XMLHttpRequest();
+                
+                xhr.open('POST', '/upload', true);
+                xhr.timeout = 60 * 60 * 1000; // 60分
+                
+                xhr.upload.onprogress = function(e) {
+                    if (e.lengthComputable) {
+                        const percentComplete = (e.loaded / e.total) * 100;
+                        progressBar.value = percentComplete * 0.1; // アップロードは全体の10%と見なす
+                        progressText.textContent = `${(percentComplete).toFixed(1)}% - アップロード中...`;
+                    }
+                };
+                
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        setStatus('処理完了！ダウンロードを開始します...');
+                        
+                        // レスポンスをBlobとして取得
+                        const blob = xhr.response;
+                        
+                        // ダウンロードリンクを作成
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.style.display = 'none';
+                        a.href = url;
+                        
+                        // Content-Dispositionヘッダーからファイル名を取得
+                        const contentDisposition = xhr.getResponseHeader('Content-Disposition');
+                        let filename = 'translated.pptx';
+                        if (contentDisposition) {
+                            const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                            if (filenameMatch && filenameMatch[1]) {
+                                filename = filenameMatch[1].replace(/['"]/g, '');
+                            }
+                        }
+                        
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                        
+                        submitBtn.disabled = false;
+                        setStatus('処理が完了しました。');
+                    } else {
+                        submitBtn.disabled = false;
+                        setStatus(`エラー: ${xhr.status} ${xhr.statusText}`);
+                    }
+                };
+                
+                xhr.onerror = function() {
+                    submitBtn.disabled = false;
+                    setStatus('ネットワークエラーが発生しました。');
+                };
+                
+                xhr.ontimeout = function() {
+                    submitBtn.disabled = false;
+                    setStatus('タイムアウトしました。ファイルが大きすぎるか、サーバーの処理が遅延しています。');
+                };
+                
+                xhr.responseType = 'blob';
+                xhr.send(formData);
+            } catch (error) {
+                submitBtn.disabled = false;
+                setStatus(`エラー: ${error.message}`);
+            }
+        }
+        
+        // 初期状態を確認してポーリングを開始
+        startStatusPolling();
+    });
+    </script>
+</head>
+<body>
+    <div class="container">
+        <button id="log-toggle-btn" style="float:right; margin-bottom:10px;">ログ表示</button>
+        <div id="log-area" style="display:none; background:#222; color:#eee; padding:1em; border-radius:6px; margin-bottom:1em; max-height:300px; overflow:auto;">
+            <div style="text-align:right;"><button id="log-reload-btn" style="background:#444; color:#fff; border:none; border-radius:3px; padding:0.2em 0.7em; cursor:pointer;">再読込</button></div>
+            <pre id="log-content" style="margin:0; font-size:0.95em;"></pre>
+        </div>
+        <h1>AutoPptAgent</h1>
+        <p class="instructions">PowerPointファイル (.pptx) を選択してアップロードしてください。<br>エグゼクティブサマリーと日本語翻訳を含む新しいファイルが生成されます。</p>
+        <form id="upload-form" enctype="multipart/form-data">
+            <input type="file" id="fileInput" name="file" accept=".pptx" required>
+            <div class="progress-container" id="progress-container">
+                <progress id="progress-bar" value="0" max="100"></progress>
+                <div id="progress-text">0%</div>
+            </div>
+            <button type="submit" id="submit-btn">アップロードして処理</button>
+        </form>
+        <div id="status"></div>
+        
+        <div class="processing-details" id="processing-details">
+            <h3>処理状況</h3>
+            <p><strong>現在の処理:</strong> <span id="current-stage">-</span></p>
+            <p><strong>ファイル:</strong> <span id="current-file">-</span></p>
+            <p><strong>スライド進捗:</strong> <span id="slide-progress">-</span></p>
+            <p><strong>テキスト翻訳進捗:</strong> <span id="text-progress">-</span></p>
+        </div>
+    </div>
+</body>
+</html>
