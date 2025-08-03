@@ -1,0 +1,98 @@
+# PPTX to YouTube 動画自動生成システム - 設定ファイル
+
+# OpenAI設定
+openai:
+  api_key: "${OPENAI_API_KEY}"
+  model:
+    script: "gpt-4.1-nano"
+    image: "dall-e-3"
+    tts: "gpt-4o-mini-tts" # gpt-4o-mini-tts tts-1
+  max_tokens: 4000
+  temperature: 0.7
+  tts:
+    male_voice: "echo"      # alloy ash ballad coral echo fable nova onyx sage shimmer
+    female_voice: "shimmer"   # 柔らかく自然な女性声（親しみやすい）
+    speed: 1.0              # 音声速度（0.25〜4.0）
+    format: "mp3"           # 音声形式
+
+# YouTube設定
+youtube:
+  client_id: "${YOUTUBE_CLIENT_ID}"
+  client_secret: "${YOUTUBE_CLIENT_SECRET}"
+  redirect_uri: "http://localhost:8080"
+  scopes:
+    - "https://www.googleapis.com/auth/youtube.upload"
+    - "https://www.googleapis.com/auth/youtube"
+
+# 動画設定
+video:
+  resolution: "1920x1080"
+  fps: 30
+  codec: "libx264"
+  bitrate: "5000k"
+  audio_codec: "aac"
+  audio_bitrate: "192k"
+  natural_pause: 0.3  # スライド間の自然な間（秒）
+
+# 音声設定
+audio:
+  sample_rate: 44100
+  channels: 2
+  format: "mp3"
+  bgm_volume: 0.3
+  voice_volume: 0.8
+
+# BGM設定
+bgm:
+  volume: -20  # dB（-30〜0の範囲）
+  fade_in: 1000  # フェードイン時間（ミリ秒）
+  fade_out: 1000  # フェードアウト時間（ミリ秒）
+
+# 画像設定
+image:
+  format: "png"
+  quality: 95
+  thumbnail_size: "1280x720"
+  export_width: 1920
+  export_height: 1080
+
+# 動画処理設定
+video_processing:
+  extract_embedded_videos: true
+  video_format: "mp4"  # 動画形式（mp4, gif）
+  gif_fps: 10
+  gif_quality: 85
+  max_video_duration: 30  # 最大動画長（秒）
+  video_scale: "640x360"  # 動画のスケール
+  adjust_script_for_videos: true  # 台本を動画に合わせて調整
+  use_unified_processing: true    # 統合処理方式を使用
+  save_slides_as_video: true      # 動画があるスライドをMP4として保存
+  extract_embedded_videos_properly: true  # 埋め込み動画を正しく抽出
+  video_script_adjustment:
+    short_video_threshold: 10  # 短い動画の閾値（秒）
+    long_video_threshold: 15   # 長い動画の閾値（秒）
+    min_dialogue_duration: 3   # 最小セリフ時間（秒）
+
+# ファイルパス設定
+paths:
+  input: "input/"
+  output:
+    scripts: "output/scripts/"
+    images: "output/images/"
+    audio: "output/audio/"
+    videos: "output/videos/"
+    thumbnails: "output/thumbnails/"
+  logs: "logs/"
+
+# ログ設定
+logging:
+  level: "INFO"
+  format: "{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} | {message}"
+  rotation: "10 MB"
+  retention: "30 days"
+
+# エラーハンドリング設定
+error_handling:
+  max_retries: 3
+  retry_delay: 5
+  timeout: 30 
