@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>百人一首 和歌検索 - いにしえの心を探る</title>
+    <meta name="description" content="自然言語で百人一首を検索。いにしえの歌人たちの心を現代に蘇らせます。">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@300;400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- 桜の装飾 -->
+        <div class="sakura-decoration">
+            <div class="sakura sakura-1">🌸</div>
+            <div class="sakura sakura-2">🌸</div>
+            <div class="sakura sakura-3">🌸</div>
+        </div>
+
+        <header class="main-header">
+            <div class="header-content">
+                <h1 class="main-title">
+                    <span class="title-main">百人一首</span>
+                    <span class="title-sub">和歌検索</span>
+                </h1>
+                <p class="header-description">いにしえの心を探る</p>
+                <div class="header-decoration">
+                    <span class="moon">🌙</span>
+                    <span class="cloud">☁</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <section class="search-section" aria-labelledby="search-title">
+                <div class="search-container">
+                    <h2 id="search-title" class="section-title">検索方法を選ぶ</h2>
+                    
+                    <div class="search-mode-toggle" role="tablist" aria-label="検索モード選択">
+                        <button id="semanticModeBtn" class="mode-btn active" role="tab" aria-selected="true" aria-controls="semanticSearchForm">
+                            <span class="mode-icon">🎯</span>
+                            <span class="mode-text">意味検索</span>
+                        </button>
+                        <button id="dbModeBtn" class="mode-btn" role="tab" aria-selected="false" aria-controls="dbSearchForm">
+                            <span class="mode-icon">📚</span>
+                            <span class="mode-text">歌集検索</span>
+                        </button>
+                    </div>
+
+                    <div class="search-form-container">
+                        <form id="semanticSearchForm" class="search-form active" role="tabpanel" aria-labelledby="semanticModeBtn">
+                            <div class="search-input-group">
+                                <input type="text" id="searchQuery" placeholder="例: 春の桜、恋の歌、秋の月..." maxlength="100" aria-label="検索クエリ">
+                                <button type="submit" id="searchButton" aria-label="検索実行">
+                                    <span class="btn-icon">🔍</span>
+                                    <span class="btn-text">検索</span>
+                                </button>
+                            </div>
+                            <div class="search-options">
+                                <label for="resultCount">表示件数:</label>
+                                <select id="resultCount" aria-label="表示件数選択">
+                                    <option value="5">5首</option>
+                                    <option value="10" selected>10首</option>
+                                    <option value="20">20首</option>
+                                </select>
+                            </div>
+                        </form>
+
+                        <form id="dbSearchForm" class="search-form" role="tabpanel" aria-labelledby="dbModeBtn" style="display:none;">
+                            <div class="search-input-group db-search">
+                                <select id="dbIdSelect" aria-label="歌番号選択">
+                                    <option value="">歌番号で選択</option>
+                                </select>
+                                <select id="dbPoetSelect" aria-label="歌人選択">
+                                    <option value="">歌人で選択</option>
+                                </select>
+                                <select id="dbHeadSelect" aria-label="歌冒頭選択">
+                                    <option value="">歌冒頭5文字で選択</option>
+                                </select>
+                                <input type="text" id="dbQueryInput" placeholder="手入力も可" maxlength="100" aria-label="手入力検索">
+                                <button type="button" id="dbSearchButton" aria-label="歌集検索実行">
+                                    <span class="btn-icon">📖</span>
+                                    <span class="btn-text">検索</span>
+                                </button>
+                            </div>
+                            <div class="search-options">
+                                <label for="resultCountDb">表示件数:</label>
+                                <select id="resultCountDb" aria-label="表示件数選択">
+                                    <option value="5">5首</option>
+                                    <option value="10" selected>10首</option>
+                                    <option value="20">20首</option>
+                                </select>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <section class="status-section" aria-live="polite">
+                <div id="statusMessage" class="status-message" role="status"></div>
+                <div id="loadingIndicator" class="loading-indicator" style="display: none;" aria-label="検索中">
+                    <div class="spinner"></div>
+                    <span>検索中...</span>
+                </div>
+            </section>
+
+            <!-- 検索結果表示エリア -->
+            <div id="results" class="results-container" style="display: none;">
+                <div class="results-header">
+                    <h3 id="results-title">検索結果</h3>
+                    <div class="results-meta">
+                        <span id="results-count"></span>
+                        <span id="search-mode-badge" class="mode-badge"></span>
+                    </div>
+                </div>
+                <div id="results-list" class="results-list"></div>
+            </div>
+
+            <!-- 検索結果テンプレート（非表示） -->
+            <template id="result-template">
+                <div class="result-item">
+                    <div class="result-content">
+                        <div class="poem-info">
+                            <div class="poem-header">
+                                <span class="poem-id">#<span class="poem-number"></span></span>
+                                <span class="poet-name"></span>
+                                <span class="similarity-score" style="display: none;"></span>
+                            </div>
+                            <div class="poem-text"></div>
+                            <div class="poem-summary" style="display: none;"></div>
+                        </div>
+                        <div class="nft-section">
+                            <div class="nft-image-container">
+                                <img class="nft-image" src="" alt="NFT画像" loading="lazy">
+                                <div class="nft-overlay">
+                                    <a class="opensea-link" href="" target="_blank" rel="noopener noreferrer">
+                                        <span class="opensea-icon">🌊</span>
+                                        <span class="opensea-text">OpenSea</span>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            <!-- システム情報表示エリア -->
+            <div id="system-info" class="system-info">
+                <div class="info-item">
+                    <span class="info-label">総歌数:</span>
+                    <span id="total-poems">-</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">キャッシュ済みクエリ:</span>
+                    <span id="cached-queries">-</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">キャッシュサイズ:</span>
+                    <span id="cache-size">-</span>
+                </div>
+            </div>
+
+            <!-- 使用量制限情報表示エリア -->
+            <div id="usage-limits" class="usage-limits">
+                <h4 class="limits-title">📊 無料枠使用状況</h4>
+                <div class="limits-grid">
+                    <div class="limit-item">
+                        <div class="limit-label">本日の検索残り</div>
+                        <div class="limit-value">
+                            <span id="daily-searches-remaining">-</span>
+                            <span class="limit-max">/ <span id="daily-searches-max">-</span></span>
+                        </div>
+                        <div class="limit-bar">
+                            <div id="daily-searches-bar" class="limit-progress"></div>
+                        </div>
+                    </div>
+                    <div class="limit-item">
+                        <div class="limit-label">本日のトークン残り</div>
+                        <div class="limit-value">
+                            <span id="daily-tokens-remaining">-</span>
+                            <span class="limit-max">/ <span id="daily-tokens-max">-</span></span>
+                        </div>
+                        <div class="limit-bar">
+                            <div id="daily-tokens-bar" class="limit-progress"></div>
+                        </div>
+                    </div>
+                    <div class="limit-item">
+                        <div class="limit-label">今月の検索残り</div>
+                        <div class="limit-value">
+                            <span id="monthly-searches-remaining">-</span>
+                            <span class="limit-max">/ <span id="monthly-searches-max">-</span></span>
+                        </div>
+                        <div class="limit-bar">
+                            <div id="monthly-searches-bar" class="limit-progress"></div>
+                        </div>
+                    </div>
+                    <div class="limit-item">
+                        <div class="limit-label">今月のトークン残り</div>
+                        <div class="limit-value">
+                            <span id="monthly-tokens-remaining">-</span>
+                            <span class="limit-max">/ <span id="monthly-tokens-max">-</span></span>
+                        </div>
+                        <div class="limit-bar">
+                            <div id="monthly-tokens-bar" class="limit-progress"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="limits-note">
+                    <p>💡 DB検索は無料で無制限にご利用いただけます</p>
+                    <p>💡 意味検索は安全な制限内でご利用いただけます</p>
+                    <p>💡 制限に達した場合は翌日または翌月までお待ちください</p>
+                </div>
+            </div>
+        </main>
+
+        <footer class="main-footer">
+            <div class="footer-content">
+                <p class="footer-text">&copy; 2024 百人一首 和歌検索システム</p>
+                <div class="footer-decoration">
+                    <span class="footer-icon">🎌</span>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html> 
