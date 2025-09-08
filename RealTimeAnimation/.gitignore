@@ -1,0 +1,64 @@
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+.env
+.env.*
+.python-version
+
+# Packaging / build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# PyInstaller / Nuitka
+*.spec
+
+# Test / coverage
+.pytest_cache/
+.cache/
+.hypothesis/
+.nox/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Type checkers / linters
+.mypy_cache/
+.pytype/
+.pyre/
+.ruff_cache/
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.code-workspace
+.vs/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs / temp
+logs/
+*.log
+tmp/
+temp/
+
+# Node (if used)
+node_modules/
+.parcel-cache/
+
+# Misc
+*.bak
+*.orig
+*.swp
+

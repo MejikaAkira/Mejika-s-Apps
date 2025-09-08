@@ -1,0 +1,15 @@
+{
+  "udp": {
+    "mode": "loopback",
+    "port": 1500,
+    "max_hz": 240.0,
+    "timestamp_unit": "ms",
+    "protocol_version": 2,
+    "timestamp_mode": "auto"
+  },
+  "nodes": {
+    "count": 21
+  }
+}
+
+
