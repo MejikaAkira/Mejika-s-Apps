@@ -1,5 +1,4 @@
 # RealTImeAnimation
-ルート: `C:\\Users\\megap\\AI\\RealTImeAnimation`
 
 ## プロジェクト概要
 - **目的**: 外部からの UDP ストリーム(各 Node 点の時系列振幅)を受信し、基準形状(位相0)に対して各 Node の変位を反映し、Three.js でリアルタイム可視化する。
