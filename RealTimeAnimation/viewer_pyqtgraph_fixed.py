@@ -23,14 +23,113 @@ except Exception:
 pg.setConfigOptions(antialias=True)
 
 
+class PortConfigDialog(QtWidgets.QDialog):
+    """複数UDPポート設定ダイアログ"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('UDPポート設定')
+        self.setModal(True)
+        self.port_widgets: list[dict[str, QtWidgets.QWidget]] = []
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QtWidgets.QVBoxLayout()
+
+        # ポート数設定
+        port_count_layout = QtWidgets.QHBoxLayout()
+        port_count_layout.addWidget(QtWidgets.QLabel('ポート数:'))
+        self.port_count_spin = QtWidgets.QSpinBox()
+        self.port_count_spin.setRange(1, 8)
+        self.port_count_spin.setValue(2)
+        self.port_count_spin.valueChanged.connect(self.on_port_count_changed)
+        port_count_layout.addWidget(self.port_count_spin)
+        port_count_layout.addStretch()
+        layout.addLayout(port_count_layout)
+
+        # ポート設定エリア
+        self.ports_area = QtWidgets.QGroupBox('ポート設定')
+        self.ports_layout = QtWidgets.QGridLayout()
+        self.ports_area.setLayout(self.ports_layout)
+        layout.addWidget(self.ports_area)
+
+        # 初期ポート入力欄作成
+        self.on_port_count_changed(2)
+
+        # ボタン
+        button_layout = QtWidgets.QHBoxLayout()
+        self.ok_btn = QtWidgets.QPushButton('OK')
+        self.cancel_btn = QtWidgets.QPushButton('キャンセル')
+        self.ok_btn.clicked.connect(self.accept)
+        self.cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(self.ok_btn)
+        button_layout.addWidget(self.cancel_btn)
+        layout.addLayout(button_layout)
+
+        self.setLayout(layout)
+        self.resize(420, 320)
+
+    def on_port_count_changed(self, count: int):
+        # 既存ウィジェット削除
+        for widgets in self.port_widgets:
+            for w in widgets.values():
+                try:
+                    w.deleteLater()
+                except Exception:
+                    pass
+        self.port_widgets.clear()
+
+        # 新規作成
+        for i in range(count):
+            row_widgets: dict[str, QtWidgets.QWidget] = {}
+
+            label = QtWidgets.QLabel(f'ポート {i + 1}:')
+            self.ports_layout.addWidget(label, i, 0)
+            row_widgets['label'] = label
+
+            port_spin = QtWidgets.QSpinBox()
+            port_spin.setRange(1024, 65535)
+            port_spin.setValue(1500 + i)
+            self.ports_layout.addWidget(port_spin, i, 1)
+            row_widgets['port'] = port_spin
+
+            offset_label = QtWidgets.QLabel('オフセット:')
+            self.ports_layout.addWidget(offset_label, i, 2)
+            row_widgets['offset_label'] = offset_label
+
+            offset_spin = QtWidgets.QSpinBox()
+            offset_spin.setRange(0, 100)
+            offset_spin.setValue(i * 15)
+            self.ports_layout.addWidget(offset_spin, i, 3)
+            row_widgets['offset'] = offset_spin
+
+            enable_cb = QtWidgets.QCheckBox('有効')
+            enable_cb.setChecked(True)
+            self.ports_layout.addWidget(enable_cb, i, 4)
+            row_widgets['enable'] = enable_cb
+
+            self.port_widgets.append(row_widgets)
+
+    def get_config(self) -> list[dict[str, int]]:
+        configs: list[dict[str, int]] = []
+        for widgets in self.port_widgets:
+            enable_cb: QtWidgets.QCheckBox = widgets['enable']  # type: ignore[assignment]
+            if enable_cb.isChecked():
+                port_spin: QtWidgets.QSpinBox = widgets['port']  # type: ignore[assignment]
+                offset_spin: QtWidgets.QSpinBox = widgets['offset']  # type: ignore[assignment]
+                configs.append({'port': int(port_spin.value()), 'offset': int(offset_spin.value())})
+        return configs
+
+
 class UDPReceiver(threading.Thread):
     """UDP受信スレッド"""
 
-    def __init__(self, data_queue: queue.Queue, host: str = '0.0.0.0', port: int = 1500):
+    def __init__(self, data_queue: queue.Queue, host: str = '0.0.0.0', port: int = 1500, index_offset: int = 0):
         super().__init__(daemon=True)
         self.data_queue = data_queue
         self.host = host
         self.port = port
+        self.index_offset = int(index_offset)
         self.running = False
         self.sock: socket.socket | None = None
 
@@ -81,7 +180,18 @@ class UDPReceiver(threading.Thread):
                     if len(data) >= expected and 0 < count <= 4096:
                         values = struct.unpack_from('<' + 'f' * count, data, 20)
                         t_sec = self.convert_timestamp(t_tick, ts_unit)
-                        self.data_queue.put(('udp', t_sec, values))
+                        try:
+                            self.data_queue.put_nowait(('udp', t_sec, values, self.index_offset))
+                        except queue.Full:
+                            # 古いものを捨てて最新を優先
+                            try:
+                                _ = self.data_queue.get_nowait()
+                            except Exception:
+                                pass
+                            try:
+                                self.data_queue.put_nowait(('udp', t_sec, values, self.index_offset))
+                            except Exception:
+                                pass
                         return
 
             # v1フォールバック
@@ -91,7 +201,17 @@ class UDPReceiver(threading.Thread):
                 if len(data) >= expected and 0 < count <= 4096:
                     values = struct.unpack_from('<' + 'f' * count, data, 14)
                     t_sec = float(t_tick) / 1000.0
-                    self.data_queue.put(('udp', t_sec, values))
+                    try:
+                        self.data_queue.put_nowait(('udp', t_sec, values, self.index_offset))
+                    except queue.Full:
+                        try:
+                            _ = self.data_queue.get_nowait()
+                        except Exception:
+                            pass
+                        try:
+                            self.data_queue.put_nowait(('udp', t_sec, values, self.index_offset))
+                        except Exception:
+                            pass
         except Exception as e:
             if self.running:
                 print(f"Parse error: {e}")
@@ -255,20 +375,20 @@ class RealtimeGraphWidget(QtWidgets.QWidget):
         self.tx_time_buffer = deque(maxlen=self.max_samples)
         self.tx_data_buffer = deque(maxlen=self.max_samples)
 
-        # データキュー
-        self.data_queue: queue.Queue = queue.Queue(maxsize=10000)
+        # データキュー（溢れ耐性強化）
+        self.data_queue: queue.Queue = queue.Queue(maxsize=20000)
 
         # 表示ノード（最大8）
         self.visible_nodes = set(range(min(8, node_count)))
 
         # アイドル検知
-        self.inactive_timeout_sec = 1.0
+        self.inactive_timeout_sec = 3.0
         self.idle_behavior = 'freeze'  # 'continue' | 'freeze' | 'clear'
         self._last_rx_monotonic = 0.0
 
         # データソース
         self.source_mode = 'udp'
-        self.udp_receiver: UDPReceiver | None = None
+        self.udp_receivers: list[UDPReceiver] = []
         self.local_gen: LocalSineGenerator | None = None
         self.loop_freq = 10.0
         self.loop_rate = 200.0
@@ -292,6 +412,8 @@ class RealtimeGraphWidget(QtWidgets.QWidget):
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_plots)
         self.timer.start(16)
+        self._active_interval_ms = 16
+        self._idle_interval_ms = 200
 
         self.fps_counter = {'last_time': time.time(), 'frames': 0}
 
@@ -460,6 +582,17 @@ class RealtimeGraphWidget(QtWidgets.QWidget):
         self.window_spin.valueChanged.connect(self.on_window_changed)
         layout.addWidget(self.window_spin)
 
+        # 3D振幅スケール
+        layout.addWidget(QtWidgets.QLabel('Amp3D:'))
+        self.amp_spin = QtWidgets.QDoubleSpinBox()
+        self.amp_spin.setRange(0.01, 10.0)
+        self.amp_spin.setDecimals(3)
+        self.amp_spin.setSingleStep(0.05)
+        self.amp_spin.setValue(self.amp_scale)
+        self.amp_spin.setSuffix(' x')
+        self.amp_spin.valueChanged.connect(self.on_amp_changed)
+        layout.addWidget(self.amp_spin)
+
         self.select_btn = QtWidgets.QPushButton('表示ノード選択')
         self.select_btn.clicked.connect(self.show_node_selector)
         layout.addWidget(self.select_btn)
@@ -481,6 +614,14 @@ class RealtimeGraphWidget(QtWidgets.QWidget):
 
         self.rate_label = QtWidgets.QLabel('Rate: 0 Hz')
         layout.addWidget(self.rate_label)
+
+        self.q_label = QtWidgets.QLabel('Q: 0')
+        layout.addWidget(self.q_label)
+
+        # UDPポート設定
+        self.port_config_btn = QtWidgets.QPushButton('UDP設定')
+        self.port_config_btn.clicked.connect(self.show_port_config)
+        layout.addWidget(self.port_config_btn)
 
         layout.addWidget(QtWidgets.QLabel('停止時:'))
         self.idle_cb = QtWidgets.QComboBox()
@@ -530,14 +671,75 @@ class RealtimeGraphWidget(QtWidgets.QWidget):
         self.tx_node_spin.setEnabled(is_loopback)
 
     def start_udp(self):
-        if not self.udp_receiver:
-            self.udp_receiver = UDPReceiver(self.data_queue)
-            self.udp_receiver.start()
+        if not self.udp_receivers:
+            # 設定がなければデフォルト
+            if not hasattr(self, 'udp_configs'):
+                self.udp_configs = [
+                    {'port': 1500, 'offset': 0},
+                    {'port': 1501, 'offset': 15},
+                ]
+            # 設定に従って開始
+            started_ports: list[int] = []
+            for cfg in list(self.udp_configs):
+                port = int(cfg.get('port', 0))
+                off = int(cfg.get('offset', 0))
+                if port <= 0:
+                    continue
+                try:
+                    r = UDPReceiver(self.data_queue, port=port, index_offset=off)
+                    r.start()
+                    self.udp_receivers.append(r)
+                    started_ports.append(port)
+                    print(f"[UDP] Receiver started on {port} (offset {off})")
+                except Exception as e:
+                    print(f"[UDP] Receiver start failed on {port}: {e}")
+            if started_ports:
+                try:
+                    ports_str = ', '.join(str(p) for p in started_ports)
+                    self.status_label.setText(f'UDP: {ports_str}')
+                except Exception:
+                    pass
 
     def stop_udp(self):
-        if self.udp_receiver:
-            self.udp_receiver.stop()
-            self.udp_receiver = None
+        if self.udp_receivers:
+            for r in self.udp_receivers:
+                try:
+                    r.stop()
+                except Exception:
+                    pass
+            self.udp_receivers = []
+
+    def show_port_config(self):
+        """ポート設定ダイアログ表示と反映"""
+        dialog = PortConfigDialog(self)
+        # 既存設定があれば反映
+        try:
+            if hasattr(self, 'udp_configs') and self.udp_configs:
+                count = min(8, max(1, len(self.udp_configs)))
+                dialog.port_count_spin.setValue(count)
+                dialog.on_port_count_changed(count)
+                for i, cfg in enumerate(self.udp_configs[:count]):
+                    widgets = dialog.port_widgets[i]
+                    cast_port: QtWidgets.QSpinBox = widgets['port']  # type: ignore[assignment]
+                    cast_off: QtWidgets.QSpinBox = widgets['offset']  # type: ignore[assignment]
+                    cast_en: QtWidgets.QCheckBox = widgets['enable']  # type: ignore[assignment]
+                    cast_port.setValue(int(cfg.get('port', 1500 + i)))
+                    cast_off.setValue(int(cfg.get('offset', i * 15)))
+                    cast_en.setChecked(True)
+        except Exception:
+            pass
+
+        if dialog.exec_():
+            configs = dialog.get_config()
+            if configs:
+                self.stop_udp()
+                self.udp_configs = configs
+                self.start_udp()
+                try:
+                    ports_str = ', '.join([str(c['port']) for c in configs])
+                    self.status_label.setText(f'UDP: {ports_str}')
+                except Exception:
+                    pass
 
     def start_loopback(self):
         self.stop_loopback()
@@ -569,6 +771,9 @@ class RealtimeGraphWidget(QtWidgets.QWidget):
     def on_window_changed(self, value: float):
         self.window_sec = float(value)
         self.max_samples = int(self.window_sec * self.sample_rate * 1.5)
+
+    def on_amp_changed(self, value: float):
+        self.amp_scale = float(value)
 
     def show_node_selector(self):
         dialog = QtWidgets.QDialog(self)
@@ -627,16 +832,64 @@ class RealtimeGraphWidget(QtWidgets.QWidget):
     def update_plots(self):
         if self.pause_btn.isChecked():
             return
+
+        q_size = self.data_queue.qsize()
+
+        # 負荷に応じたバッチ取り出し戦略
         new_data = []
-        try:
-            for _ in range(20):
-                source, t, values = self.data_queue.get_nowait()
-                new_data.append((source, t, values))
-        except queue.Empty:
-            pass
+        if q_size > 2000:
+            # 緊急モード：古いデータを大幅破棄して遅延解消
+            clear_count = q_size - 200
+            for _ in range(clear_count):
+                try:
+                    self.data_queue.get_nowait()
+                except Exception:
+                    break
+            take = 50
+            for _ in range(take):
+                try:
+                    item = self.data_queue.get_nowait()
+                    if len(item) == 3:
+                        source, t, values = item
+                        offset = 0
+                    else:
+                        source, t, values, offset = item
+                    new_data.append((source, t, values, offset))
+                except Exception:
+                    break
+        elif q_size > 500:
+            # 高負荷モード：スキップ混合
+            batch_size = 90
+            for i in range(batch_size):
+                try:
+                    item = self.data_queue.get_nowait()
+                    # 3つに1つ処理
+                    if i % 3 == 0:
+                        if len(item) == 3:
+                            source, t, values = item
+                            offset = 0
+                        else:
+                            source, t, values, offset = item
+                        new_data.append((source, t, values, offset))
+                except Exception:
+                    break
+        else:
+            # 通常モード
+            take = min(100, q_size)
+            for _ in range(take):
+                try:
+                    item = self.data_queue.get_nowait()
+                    if len(item) == 3:
+                        source, t, values = item
+                        offset = 0
+                    else:
+                        source, t, values, offset = item
+                    new_data.append((source, t, values, offset))
+                except Exception:
+                    break
 
         had_new_data = False
-        for source, t, values in new_data:
+        for source, t, values, offset in new_data:
             if source == 'loopback':
                 self.tx_time_buffer.append(t)
                 if self.selected_tx_node < len(values):
@@ -644,14 +897,22 @@ class RealtimeGraphWidget(QtWidgets.QWidget):
                 else:
                     self.tx_data_buffer.append(0.0)
             self.time_buffer.append(t)
-            for i, val in enumerate(values[:self.node_count]):
-                self.data_buffers[i].append(val)
+            # ポートごとのオフセットを考慮して結合
+            for i, val in enumerate(values[:self.node_count - offset]):
+                idx = i + offset
+                if 0 <= idx < self.node_count:
+                    self.data_buffers[idx].append(val)
             had_new_data = True
 
         if had_new_data:
             self._last_rx_monotonic = time.monotonic()
 
         self.update_status(had_new_data)
+        # キューサイズ表示
+        try:
+            self.q_label.setText(f'Q: {self.data_queue.qsize()}')
+        except Exception:
+            pass
 
         if not had_new_data and self._last_rx_monotonic:
             idle_time = time.monotonic() - self._last_rx_monotonic
@@ -663,6 +924,24 @@ class RealtimeGraphWidget(QtWidgets.QWidget):
                 if self.idle_behavior == 'freeze':
                     self.update_fps()
                     return
+            # アイドル時はタイマーを粗くしてCPU節約
+            if idle_time > 0.3:
+                if self.timer.interval() != self._idle_interval_ms:
+                    self.timer.setInterval(self._idle_interval_ms)
+        else:
+            if self.timer.interval() != self._active_interval_ms:
+                self.timer.setInterval(self._active_interval_ms)
+
+        # キューサイズに応じて動的調整
+        if q_size > 1000:
+            if self.timer.interval() != 100:
+                self.timer.setInterval(100)  # 10fps
+        elif q_size > 200:
+            if self.timer.interval() != 33:
+                self.timer.setInterval(33)   # 30fps
+        else:
+            if self.timer.interval() != self._active_interval_ms:
+                self.timer.setInterval(self._active_interval_ms)
 
         # 3D更新（最新値をYに反映）
         if self.gl_enabled and self.gl_scatter is not None and len(self.data_buffers[0]) > 0:
@@ -711,7 +990,7 @@ class RealtimeGraphWidget(QtWidgets.QWidget):
                         self.curves[node_id].setData(disp_t, disp_v)
                         y_min, y_max = float(np.min(disp_v)), float(np.max(disp_v))
                         if abs(y_max - y_min) > 1e-3:
-                            margin = (y_max - y_min) * 0.1
+                            margin = (y_max - y_min) * 0.2
                             self.plots[node_id].setYRange(y_min - margin, y_max + margin, padding=0)
 
     def update_status(self, has_new_data: bool):

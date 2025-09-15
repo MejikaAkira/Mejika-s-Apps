@@ -19,12 +19,15 @@ powershell -NoProfile -Command "foreach($p in 1500,1501){ $name=\"UDP$($p)\"; if
 echo [INFO] Checking and freeing UDP ports 1500/1501 before launch...
 powershell -NoProfile -Command "foreach($p in 1500,1501){ $eps = Get-NetUDPEndpoint -LocalPort $p -ErrorAction SilentlyContinue; if($eps){ $pids = $eps | Select-Object -ExpandProperty OwningProcess | Sort-Object -Unique; foreach($pid in $pids){ try{ $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue; $name = if($proc){ $proc.ProcessName } else { 'unknown' }; Write-Output \"[INFO] UDP $p in use by PID $pid ($name). Killing...\"; Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 150 } catch {} } } else { Write-Output \"[INFO] UDP $p is free.\" } }"
 
-echo [INFO] Starting viewer.py...
+echo [INFO] Checking existing viewer_pyqtgraph_fixed.py processes...
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'viewer_pyqtgraph_fixed.py' } | ForEach-Object { Write-Output \"[INFO] Existing viewer found (PID $($_.ProcessId)). Killing...\"; Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 150 }"
+
+echo [INFO] Starting viewer_pyqtgraph_fixed.py...
 if exist "venv\Scripts\python.exe" (
   call "venv\Scripts\activate.bat"
-  python viewer.py
+  python viewer_pyqtgraph_fixed.py
 ) else (
-  python viewer.py
+  python viewer_pyqtgraph_fixed.py
 )
 
 popd
