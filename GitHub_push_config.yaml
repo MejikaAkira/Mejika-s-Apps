@@ -1,0 +1,4 @@
+repo_path: "C:\Users\megap\AI\Mejika-s-Apps"   # ローカルリポジトリの絶対パス
+remote_url: "git@github.com:MejikaAkira/Mejika-s-Apps.git" # GitHub リモートURL (SSH推奨)
+branch: "main"                                 # push先ブランチ
+commit_msg: "auto: commit from batch"          # デフォルトのコミットメッセージ
