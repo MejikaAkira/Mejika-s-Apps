@@ -1,7 +1,7 @@
 # 🔍 LogSense_v1 - RTX 3060向け超高速「間違い探し」AI
 
 ## 📝 プロジェクト概要
-YOLO + CLIP + FAISS + OpenAI Realtime API を組み合わせて、**2枚の画像の差分を50ms以内に検出＆赤丸で可視化**し、**500ms以内に自然言語で音声出力**するシステム。
+YOLO + CLIP + FAISS + OpenAI Realtime API を組み合わせて、**2枚の画像の差分を高速検出＆赤丸で可視化**し、**自然言語で音声出力**するシステム。
 
 GPUは **RTX 3060 (12GB VRAM)** 前提で、解像度640px／FP16推論で最適化。
 
@@ -9,35 +9,40 @@ GPUは **RTX 3060 (12GB VRAM)** 前提で、解像度640px／FP16推論で最適
 
 ### 1. 環境セットアップ
 ```bash
+# 仮想環境作成・アクティベート
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+
 # 依存関係インストール
 pip install -r requirements.txt
 ```
 
-### 2. サンプル画像生成
+### 2. GUIアプリ起動（推奨）
 ```bash
-python create_sample_images.py
+python yolo_diff_gui_fixed.py
 ```
 
-### 3. 性能テスト実行
+### 3. コマンドライン実行
 ```bash
-python test_performance.py
-```
-
-### 4. 手動実行
-```bash
-python diff_finder.py --a samples/image_a.png --b samples/image_b.png
+python diff_finder.py --a samples/bird_a.PNG --b samples/bird_b.PNG
 ```
 
 ## 📁 プロジェクト構造
 ```
 LogSense_v1/
-├── diff_finder.py          # メイン処理スクリプト
-├── create_sample_images.py # テスト画像生成
-├── test_performance.py     # 性能テスト
+├── diff_finder.py          # メイン処理スクリプト（CLIP+FAISS版）
+├── yolo_diff_gui_fixed.py  # GUIアプリ（YOLO差分検出）
 ├── requirements.txt        # 依存関係
+├── project.md             # プロジェクト仕様
 ├── models/                 # YOLOモデル格納
+│   └── yolov8s.pt         # YOLOモデル
 ├── out/                    # 出力ファイル
+│   ├── diff.png           # 差分可視化画像
+│   └── diff.json          # 差分情報JSON
 ├── samples/                # テスト画像
+│   ├── bird_a.PNG         # テスト画像A
+│   ├── bird_b.PNG         # テスト画像B
+│   └── coco_sample.jpg    # COCOサンプル
 └── README.md              # このファイル
 ```
 
@@ -49,6 +54,12 @@ LogSense_v1/
 | FAISS検索＋差分可視化 | ~10ms |
 | **合計** | **~50ms以内** |
 | LLM＋TTSストリーミング開始 | ~300ms開始、~500ms完了 |
+
+## 🖥️ GUI機能
+- **画像選択**: 左側・右側の画像を個別選択
+- **差分検出**: YOLOで物体検出後、類似度比較
+- **可視化**: 左側画像に赤丸で差分を表示
+- **結果表示**: 検出数・処理時間・詳細情報を表示
 
 ## ⚙️ 技術仕様
 - **GPU**: NVIDIA RTX 3060 12GB
@@ -67,10 +78,10 @@ LogSense_v1/
 - OpenAI API: `OPENAI_API_KEY` 環境変数で有効化
 
 ## 🎮 動作確認
-1. サンプル画像でテスト実行
-2. 50ms以内に差分画像が生成されることを確認
-3. JSONに差分数・差分クラスが記録されることを確認
-4. 音声応答（モックまたは実際のAPI）が開始されることを確認
+1. GUIアプリで画像を選択して差分検出
+2. 左側画像に赤丸で差分が表示されることを確認
+3. 処理時間・検出数・詳細情報が表示されることを確認
+4. コマンドライン版でも同様の結果が得られることを確認
 
 ## 🚀 将来拡張
 - 動画入力対応（ByteTrackで追跡）
