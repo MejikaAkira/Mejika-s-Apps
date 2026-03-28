@@ -1,0 +1,5 @@
+# train_batch.py が --config で読める任意項目（未指定時はコマンドライン優先）
+model: yolov8n.pt
+epochs: 50
+imgsz: 640
+batch: 16

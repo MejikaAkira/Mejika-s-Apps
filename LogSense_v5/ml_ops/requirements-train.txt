@@ -1,0 +1,4 @@
+# 学習専用（本体 requirements.txt とは別にしてよい）
+ultralytics>=8.0.0
+PyYAML>=6.0
+# train_batch / validate_dataset で使用

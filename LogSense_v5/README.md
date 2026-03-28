@@ -1,32 +1,24 @@
-# LogSense v4
+# LogSense v5
 
-画像間の差分検出システム。位置補正、特徴点検出、差分計算を自動実行します。
+リアルタイム動画差分検出システム。カメラからの入力に対して、フレーム間の差分をリアルタイムで検出・保存します。
 
 ## 概要
 
-LogSense v4は、2枚以上の画像を比較して差分を検出するシステムです。以下の機能を提供します：
+LogSense v5は、カメラからのリアルタイム動画入力に対して、連続するフレーム間の差分を検出するシステムです。以下の機能を提供します：
 
-- **画像位置補正**: SIFT/ORB特徴点検出による自動位置補正
-- **差分計算**: 位置補正後の画像間の差分を計算
-- **GPU/CPUハイブリッド最適化**: 処理速度を最適化
-- **設定ファイル管理**: `config.json`による柔軟な設定
+- **リアルタイム動画処理**: カメラからの入力フレームをリアルタイムで処理
+- **位置補正**: カメラの微小な動きを補正して、正確な差分検出を実現
+- **差分検出**: 直前のフレームとの差分を検出し、変化を検知
+- **自動保存**: 差分が検出されたフレームを自動保存
+- **ノイズ除去**: カメラノイズによる誤検出を削減
 
 ## 主な機能
 
-### 1. 画像位置補正
-- **特徴点検出**: SIFTまたはORBを使用（`config.json`で選択可能）
-- **特徴点マッチング**: GPU/CPUで高速マッチング
-- **ホモグラフィ計算**: RANSACアルゴリズムによる位置補正
-
-### 2. 差分計算
-- **パディング除外**: リサイズ時のパディング領域を正確に除外
-- **輪郭抽出**: 差分領域の輪郭を抽出してJSON形式で保存
-- **可視化**: 差分画像をPNG形式で保存
-
-### 3. GPU/CPUハイブリッド最適化
-- **自動デバイス選択**: 画像サイズに応じてGPU/CPUを自動選択
-- **転送オーバーヘッド最小化**: GPU転送回数を最小化して高速化
-- **設定可能**: `config.json`で各処理のデバイスを指定可能
+- **リアルタイム動画処理**: カメラからの入力フレームをリアルタイムで処理
+- **位置補正**: カメラの微小な動きを自動的に補正
+- **差分検出**: 連続するフレーム間の差分を検出
+- **自動保存**: 差分が検出されたフレームを自動保存
+- **ノイズ除去**: カメラノイズによる誤検出を削減
 
 ## セットアップ
 
@@ -34,12 +26,13 @@ LogSense v4は、2枚以上の画像を比較して差分を検出するシス�
 - Python 3.8以上
 - OpenCV（CUDA対応推奨）
 - NumPy
+- カメラ（PC内蔵カメラまたはUSBカメラ）
 
 **注意**: OpenCVのCUDA対応版を使用する場合は、システムにCUDAがインストールされている必要があります。CUDA非対応版でも動作しますが、GPU最適化は使用できません。
 
 ### インストール
 
-1. 仮想環境の作成とアクティベート：
+1. **仮想環境の作成とアクティベート**：
 ```bash
 python -m venv venv
 venv\Scripts\activate  # Windows
@@ -47,7 +40,7 @@ venv\Scripts\activate  # Windows
 source venv/bin/activate  # Linux/Mac
 ```
 
-2. 依存パッケージのインストール：
+2. **依存パッケージのインストール**：
 ```bash
 python -m pip install --upgrade pip
 pip install -r requirements.txt
@@ -67,202 +60,138 @@ python -c "import cv2; print(cv2.cuda.getCudaEnabledDeviceCount())"
 
 ### 基本的な使い方
 
-1. **画像の配置**:
-   - `image_inputs/`フォルダに、タイムスタンプ名のフォルダを作成
-   - 基準画像を`*_base.png`（または`*_base.jpg`）として配置
-   - 比較対象画像を同じフォルダに配置
+1. **設定ファイルの確認**：
+   - `config.json`でカメラデバイスIDや処理パラメータを設定
+   - デフォルトでは、デバイスID 0（デフォルトPCカメラ）を使用
 
-   例：
-   ```
-   image_inputs/
-     └── 20251107_231639/
-         ├── room1_base.png
-         └── room1_b.png
-   ```
-
-2. **パイプラインの実行**:
+2. **アプリケーションの起動**：
 ```bash
-python process/pipeline.py
+python video_process/realtime_video_processor.py
 ```
 
-3. **結果の確認**:
-   - 差分画像: `diff_outputs/{timestamp}/{base_name}_vs_{other_name}_difference.png`
-   - 輪郭データ: `diff_outputs/{timestamp}/{base_name}_vs_{other_name}_contours.json`
-   - 位置補正画像: `diff_outputs/{timestamp}/{base_name}_vs_{other_name}_aligned_base.png`
+3. **処理の停止**：
+   - `Ctrl+C`で処理を停止
+
+4. **結果の確認**：
+   - 差分が検出されたフレーム: `video_outputs/{timestamp}/frame_XXXXX.png`
+   - 差分画像: `video_outputs/{timestamp}/frame_XXXXX_diff.png`
+   - 差分が検出されなかったフレーム: `video_outputs/archive/{timestamp}/frame_XXXXX.png`
 
 ## 設定ファイル（config.json）
 
-`config.json`で処理パラメータを設定できます。
+`config.json`の`realtime_video`セクションで、リアルタイム動画処理のパラメータを設定できます。
 
-### 特徴点検出設定
+### カメラ設定
 
 ```json
-"feature_detector": {
-  "type": "ORB",  // "SIFT" または "ORB"
-  "device": "CPU"  // "CPU" または "GPU"（SIFTはCPUのみ）
+"camera": {
+  "device_id": 0,  // カメラデバイスID（0=デフォルトPCカメラ）
+  "fps": 30        // カメラのFPS
 }
 ```
 
-- **SIFT**: 高精度だが遅い（CPUのみ）
-- **ORB**: 高速だが精度はやや低い（CPU/GPU対応）
-
-### 記述子マッチング設定
+### 差分検出設定
 
 ```json
-"descriptor_matching": {
-  "device": "GPU"  // "CPU" または "GPU"
+"difference": {
+  "threshold_pixels": 5000,    // 差分ピクセル数の閾値
+  "threshold_ratio": 0.005,     // 差分ピクセル率の閾値（0.5%）
+  "noise_threshold": 20         // ノイズ除去の閾値
 }
 ```
 
-- **GPU**: 大規模データで高速（数千個の特徴点）
-- **CPU**: 小規模データで高速（数百個の特徴点）
+- **threshold_pixels**: 差分ピクセル数の閾値（画像サイズに応じて調整）
+- **threshold_ratio**: 差分ピクセル率の閾値（0.0-1.0）
+- **noise_threshold**: ノイズ除去の閾値（カメラノイズを除外）
 
-### 画像処理設定
+### 位置補正の最適化設定
 
 ```json
-"image_processing": {
-  "sharpen": "CPU",      // "auto", "CPU", "GPU"
-  "resize": "CPU",       // "auto", "CPU", "GPU"
-  "gaussian_blur": "CPU", // "auto", "CPU", "GPU"
-  "warp_perspective": "CPU", // "auto", "CPU", "GPU"
-  "absdiff": "CPU"       // "auto", "CPU", "GPU"
+"alignment": {
+  "homography_reuse_seconds": 0.1  // 位置補正結果を再利用する時間（秒）
 }
 ```
 
-- **auto**: 画像サイズに応じて自動選択（1280x720以上でGPU）
-- **CPU**: 常にCPUで処理（推奨：GPU転送オーバーヘッドを回避）
-- **GPU**: 常にGPUで処理
+- **homography_reuse_seconds**: 位置補正結果を再利用する時間（デフォルト: 0.1秒）
+  - 値を大きくすると処理速度が向上しますが、精度が低下する可能性があります
+  - 値を小さくすると精度が向上しますが、処理時間が増加する可能性があります
 
-### ORB設定
+### 保存設定
 
 ```json
-"orb": {
-  "nfeatures": 500,      // 最大特徴点数
-  "scaleFactor": 1.2,    // スケールファクター
-  "nlevels": 8          // ピラミッドレベル数
+"save": {
+  "archive_no_diff": true,                    // 差分なしフレームをアーカイブに保存
+  "archive_path": "video_outputs/archive"     // アーカイブフォルダのパス
 }
 ```
 
-### SIFT設定
+### バッファ設定
 
 ```json
-"sift": {
-  "max_features": 0,           // 最大特徴点数（0=無制限）
-  "contrast_threshold": 0.04,  // コントラスト閾値
-  "edge_threshold": 10,        // エッジ閾値
-  "sigma": 1.6                 // ガウシアンシグマ
+"buffer": {
+  "frame_buffer_size": 10,  // フレームバッファの最大サイズ
+  "frame_queue_size": 5     // フレームキューの最大サイズ
 }
 ```
 
 詳細は`config.json`内のコメントを参照してください。
 
-## プロジェクト構成
-
-```
-LogSense_v4/
-├── process/                    # 処理モジュール
-│   ├── pipeline.py            # メインパイプライン
-│   ├── sharpen_images.py      # 画像シャープ化
-│   ├── alignment_utils.py     # 位置補正（特徴点検出、マッチング、ホモグラフィ）
-│   ├── calculate_difference.py # 差分計算
-│   ├── gpu_utils.py           # GPU/CPUユーティリティ
-│   └── config_loader.py        # 設定ファイル読み込み
-├── image_inputs/               # 入力画像フォルダ
-│   └── {timestamp}/           # タイムスタンプ名のフォルダ
-│       ├── {name}_base.png    # 基準画像
-│       └── {name}_*.png       # 比較対象画像
-├── diff_outputs/               # 差分結果出力フォルダ
-│   └── {timestamp}/           # タイムスタンプ名のフォルダ
-│       ├── {base}_vs_{other}_difference.png  # 差分画像
-│       ├── {base}_vs_{other}_contours.json   # 輪郭データ
-│       └── {base}_vs_{other}_aligned_base.png # 位置補正画像
-├── config.json                # 設定ファイル
-├── requirements.txt           # 依存パッケージ
-└── README.md                 # このファイル
-```
-
-## 処理フロー
-
-1. **画像読み込み**: `image_inputs/{timestamp}/`から画像を読み込み
-2. **画像シャープ化**: アンシャープマスクによるシャープ化処理
-3. **位置補正**:
-   - 特徴点検出（SIFT/ORB）
-   - 特徴点マッチング
-   - ホモグラフィ計算
-   - 画像変換（warpPerspective）
-4. **差分計算**:
-   - 位置補正後の画像間の差分を計算
-   - パディング領域を除外
-   - 輪郭抽出
-5. **結果保存**: 差分画像、輪郭データ、位置補正画像を保存
-
-## GPU/CPU最適化の詳細
-
-### 最適化方針
-
-- **GPU**: 並列処理が得意な処理（リサイズ、フィルタ、差分計算、画像変換）
-- **CPU**: 複雑なアルゴリズム（特徴点検出、RANSAC、JSON処理）
-
-### 転送オーバーヘッドの最小化
-
-GPU転送には時間がかかるため、以下の方針で最適化：
-
-1. **バッチ処理**: 複数の処理をGPU上で連続実行
-2. **転送回数最小化**: 必要な時だけ`upload()`/`download()`を実行
-3. **自動選択**: 画像サイズに応じてGPU/CPUを自動選択（`auto`モード）
-
-### パフォーマンス
-
-- **処理速度**: 画像サイズと設定に依存（通常0.3-0.8秒/画像ペア）
-- **GPU使用時**: 大規模画像（1280x720以上）で高速化
-- **CPU使用時**: 小規模画像でGPU転送オーバーヘッドを回避
-
 ## 出力ファイル
 
-### 差分画像（`*_difference.png`）
-位置補正後の画像間の差分を可視化した画像。白い部分が差分領域です。
+### 差分検出時
+- **元のフレーム**: `video_outputs/{timestamp}/frame_XXXXX.png`
+- **差分画像**: `video_outputs/{timestamp}/frame_XXXXX_diff.png`
 
-### 輪郭データ（`*_contours.json`）
-差分領域の輪郭座標をJSON形式で保存。以下の形式：
-
-```json
-{
-  "contours": [
-    {
-      "points": [[x1, y1], [x2, y2], ...],
-      "area": 1234.5
-    },
-    ...
-  ]
-}
-```
-
-### 位置補正画像（`*_aligned_base.png`）
-基準画像を比較対象画像の位置に合わせて変換した画像。
+### 差分なし時
+- **元のフレーム**: `video_outputs/archive/{timestamp}/frame_XXXXX.png`
 
 ## トラブルシューティング
 
-### GPUが使用されない
+### カメラが認識されない
 
-1. OpenCVがCUDA対応か確認：
-```bash
-python -c "import cv2; print(cv2.cuda.getCudaEnabledDeviceCount())"
+1. カメラが接続されているか確認
+2. `config.json`の`camera.device_id`を変更（0, 1, 2...を試す）
+3. 他のアプリケーションがカメラを使用していないか確認
+
+### 処理が遅い
+
+1. `config.json`の`alignment.homography_reuse_seconds`を増やす（例: 0.2秒）
+2. GPUが使用可能か確認
+3. カメラの解像度を下げる（カメラ設定で調整）
+
+### 誤検出が多い
+
+1. `config.json`の`difference.noise_threshold`を上げる（例: 30-40）
+2. `difference.threshold_pixels`を上げる（例: 10000）
+3. `difference.threshold_ratio`を上げる（例: 0.01）
+
+### 検出されない
+
+1. `config.json`の`difference.noise_threshold`を下げる（例: 10-15）
+2. `difference.threshold_pixels`を下げる（例: 2000）
+3. `difference.threshold_ratio`を下げる（例: 0.002）
+
+## プロジェクト構成
+
 ```
-
-2. `config.json`で`device`が`"GPU"`または`"auto"`になっているか確認
-
-3. 環境変数`USE_GPU=true`が設定されているか確認
-
-### 位置補正が失敗する
-
-- 特徴点が少ない場合、`config.json`で特徴点数を増やす
-- ORB使用時: `orb.nfeatures`を増やす（例: 1000）
-- SIFT使用時: `sift.contrast_threshold`を下げる（例: 0.03）
-
-### 差分画像に不要な線が表示される
-
-- パディング除外機能により、リサイズ時の黒い領域は自動的に除外されます
-- 問題が続く場合は、`alignment_utils.py`のマスク処理を確認
+LogSense_v5/
+├── video_process/                    # リアルタイム動画処理モジュール
+│   └── realtime_video_processor.py  # メイン処理モジュール
+├── process/                         # 画像処理モジュール（既存）
+│   ├── alignment_utils.py           # 位置補正
+│   ├── calculate_difference.py      # 差分計算
+│   └── config_loader.py             # 設定ファイル読み込み
+├── test/                            # テストスクリプト
+│   ├── test_realtime_video_processor.py
+│   ├── test_warmup_with_camera.py
+│   └── test_warmup_with_camera_parallel.py
+├── video_outputs/                   # 出力フォルダ
+│   ├── {timestamp}/                 # 差分検出時のフレーム
+│   └── archive/                     # 差分なし時のフレーム
+├── config.json                      # 設定ファイル
+├── requirements.txt                 # 依存パッケージ
+└── README.md                        # このファイル
+```
 
 ## ライセンス
 
@@ -270,9 +199,9 @@ python -c "import cv2; print(cv2.cuda.getCudaEnabledDeviceCount())"
 
 ## 更新履歴
 
-### v4.0
-- GPU/CPUハイブリッド最適化の実装
-- SIFT/ORB特徴点検出の選択可能化
-- `config.json`による設定管理
-- パディング除外機能の実装
-- 動的画像読み込み（`_base`画像と他の画像の比較）
+### v5.0
+- リアルタイム動画差分検出機能の実装
+- 位置補正の最適化
+- ノイズ除去機能の追加
+- 自動保存機能の実装
+- config.jsonによる設定の外部化

@@ -13,7 +13,7 @@ import threading
 import queue
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 import cv2
 import numpy as np
@@ -26,6 +26,61 @@ from alignment_utils import resize_to_common_size, align_images
 from gpu_utils import GpuPipe, smart_threshold_pixels
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+
+
+class FrameBroadcaster:
+    """フレームを複数のコンシューマーに配信するクラス"""
+    
+    def __init__(self):
+        self.subscribers: List[queue.Queue] = []
+        self.lock = threading.Lock()
+    
+    def subscribe(self, maxsize: int = 2) -> queue.Queue:
+        """新しい購読者を追加し、独立したキューを返す
+        
+        Args:
+            maxsize: キューの最大サイズ（デフォルト: 2）
+        
+        Returns:
+            購読者のキュー
+        """
+        subscriber_queue = queue.Queue(maxsize=maxsize)
+        with self.lock:
+            self.subscribers.append(subscriber_queue)
+        return subscriber_queue
+    
+    def unsubscribe(self, subscriber_queue: queue.Queue):
+        """購読者を削除
+        
+        Args:
+            subscriber_queue: 削除する購読者のキュー
+        """
+        with self.lock:
+            if subscriber_queue in self.subscribers:
+                self.subscribers.remove(subscriber_queue)
+    
+    def broadcast(self, frame: np.ndarray):
+        """全購読者にフレームを配信
+        
+        Args:
+            frame: 配信するフレーム
+        """
+        with self.lock:
+            subscribers = self.subscribers.copy()
+        
+        for subscriber_queue in subscribers:
+            try:
+                # 古いフレームを破棄（最新フレームのみ保持）
+                while True:
+                    subscriber_queue.get_nowait()
+            except queue.Empty:
+                pass
+            
+            try:
+                subscriber_queue.put_nowait(frame.copy())
+            except queue.Full:
+                # キューが満杯の場合は無視（次のフレームで再試行）
+                pass
 
 
 class HomographyCache:
@@ -101,13 +156,14 @@ class RealtimeVideoProcessor:
         self.cap: Optional[cv2.VideoCapture] = None
         self.homography_cache = HomographyCache(self.homography_reuse_seconds)
         self.frame_buffer = FrameBuffer(maxsize=self.frame_buffer_size)
+        self.frame_broadcaster = FrameBroadcaster()  # フレームブロードキャスト
         self.is_running = False
         self.is_processing = False
         self.base_frame: Optional[np.ndarray] = None
         self.frame_count = 0
         self.capture_thread: Optional[threading.Thread] = None
         self.process_thread: Optional[threading.Thread] = None
-        self.frame_queue: Optional[queue.Queue] = None
+        self.frame_queue: Optional[queue.Queue] = None  # 後方互換性のため保持
         self.output_dir: Optional[str] = None
         self.archive_dir: Optional[str] = None
         self.process_times = []  # 処理時間を記録（テスト用）
@@ -189,6 +245,7 @@ class RealtimeVideoProcessor:
     
     def _capture_loop(self):
         """カメラからフレームを取得するループ"""
+        # 後方互換性のため、frame_queueも維持
         self.frame_queue = queue.Queue(maxsize=self.frame_queue_size)
         
         while self.is_running:
@@ -197,6 +254,10 @@ class RealtimeVideoProcessor:
                 time.sleep(0.1)
                 continue
             
+            # フレームをブロードキャスト（全購読者に配信）
+            self.frame_broadcaster.broadcast(frame)
+            
+            # 後方互換性のため、frame_queueにも追加
             try:
                 self.frame_queue.put_nowait(frame.copy())
             except queue.Full:
@@ -280,7 +341,14 @@ class RealtimeVideoProcessor:
             skip_save: Trueの場合、結果を保存しない（ウォーミングアップ用）
         """
         if self.base_frame is None:
-            return None
+            # base_frameが設定されていない場合（初期化前など）
+            return {
+                "frame_number": self.frame_count,
+                "original_frame": current_frame,
+                "status": "error",
+                "error_message": "基準フレームが設定されていません",
+                "timestamp": datetime.now()
+            }
         
         # 処理時間測定開始
         process_start_time = time.time()
@@ -330,12 +398,32 @@ class RealtimeVideoProcessor:
                     logging.debug(f"[cache] ホモグラフィキャッシュが無効（経過時間: {elapsed:.3f}秒 >= {self.homography_reuse_seconds}秒）、新規計算を実行")
                 else:
                     logging.debug("[cache] ホモグラフィキャッシュが存在しない、新規計算を実行")
-                base_aligned, current_aligned, transform_matrix, mask_base_aligned, mask_current_aligned = align_images(
+                alignment_result = align_images(
                     base_resized, current_resized, mask_base, mask_current
                 )
                 
+                # align_imagesの戻り値を安全に処理
+                if alignment_result is None or len(alignment_result) < 5:
+                    # 位置補正失敗
+                    return {
+                        "frame_number": self.frame_count,
+                        "original_frame": current_frame,
+                        "status": "error",
+                        "error_message": "位置補正に失敗しました（十分な特徴点マッチが見つかりませんでした）",
+                        "timestamp": datetime.now()
+                    }
+                
+                base_aligned, current_aligned, transform_matrix, mask_base_aligned, mask_current_aligned = alignment_result
+                
                 if transform_matrix is None:
-                    return None
+                    # 位置補正失敗
+                    return {
+                        "frame_number": self.frame_count,
+                        "original_frame": current_frame,
+                        "status": "error",
+                        "error_message": "位置補正に失敗しました（ホモグラフィ行列が計算できませんでした）",
+                        "timestamp": datetime.now()
+                    }
                 
                 # キャッシュに保存
                 with self.homography_cache.lock:
@@ -344,6 +432,12 @@ class RealtimeVideoProcessor:
             
             # 差分計算（動画対応版：既存のprocess/calculate_difference.pyのロジックを使用）
             diff_result = self._calculate_difference_for_video(base_aligned, current_aligned, mask_base_aligned, mask_current_aligned)
+            
+            # 処理状態を決定
+            if diff_result["has_difference"]:
+                status = "success"
+            else:
+                status = "no_difference"
             
             result = {
                 "frame_number": self.frame_count,
@@ -354,6 +448,7 @@ class RealtimeVideoProcessor:
                 "diff_pixels": diff_result["diff_pixels"],
                 "diff_ratio": diff_result["diff_ratio"],
                 "has_difference": diff_result["has_difference"],
+                "status": status,
                 "timestamp": datetime.now()
             }
             
@@ -373,7 +468,14 @@ class RealtimeVideoProcessor:
             
         except Exception as e:
             logging.error(f"フレーム処理中にエラー: {e}")
-            return None
+            # エラー時も結果を返す（元フレームは表示可能）
+            return {
+                "frame_number": self.frame_count,
+                "original_frame": current_frame,
+                "status": "error",
+                "error_message": f"処理エラー: {str(e)}",
+                "timestamp": datetime.now()
+            }
     
     def _calculate_difference_for_video(self, base_aligned: np.ndarray, current_aligned: np.ndarray,
                                        mask_base: Optional[np.ndarray], mask_current: Optional[np.ndarray]) -> Dict[str, Any]:

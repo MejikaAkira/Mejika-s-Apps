@@ -1,0 +1,2 @@
+# YOLO 差分ストリーム用（既存 requirements.txt に追加するか、別環境で併用）
+ultralytics>=8.0.0

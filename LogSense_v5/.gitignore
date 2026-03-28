@@ -11,3 +11,17 @@ outputs/*
 checkpoints/*.pt
 demo/backend/checkpoints/*.pt
 video_outputs/*
+# YOLO 重みはローカル配置（リポジトリに含めない）
+models/*.pt
+# ml_ops: 学習データは容量大のため既定で無視（example のみ追跡）
+ml_ops/datasets/curated/**
+!ml_ops/datasets/curated/README.md
+!ml_ops/datasets/curated/example/
+!ml_ops/datasets/curated/example/**
+ml_ops/registry/candidates/*
+!ml_ops/registry/candidates/.gitkeep
+ml_ops/datasets/incoming/*
+!ml_ops/datasets/incoming/.gitkeep
+Development.md
+Plan.md
+Plan_v5.md
