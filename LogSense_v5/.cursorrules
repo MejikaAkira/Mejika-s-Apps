@@ -1,0 +1,197 @@
+# Global Cursor Code Settings
+
+## Package Manager (Python)
+
+Use **python** in this workspace.
+
+### Workspace layout (ClaudeCodeProject root)
+
+- **scripts/** – Utilities (e.g. `init_project.py` for new projects).
+- Use `.env` per project for environment variables; never commit `.env`.
+
+### Project folder vs .claude vs venv
+
+- **Project** = one folder (e.g. created by `init_project.py` or opened in the IDE). That folder is the unit of work.
+- **`.claude/`** – Created and used by **Claude** (the agent). Holds project-specific context/settings for Claude (e.g. `settings.local.json`). Do not use it for Python or dependencies.
+- **`venv/`** – Python virtual environment for that project. Create it inside the same project folder: `python -m venv venv`. Runtime and dependencies only.
+- Both `.claude/` and `venv/` live in the same project folder; they do not conflict (Claude’s context vs Python runtime). No shared root venv; each project has its own `venv` and `requirements.txt`.
+
+### Library management (per project)
+
+- **One venv per project.** Create inside the project folder: `python -m venv venv`, then activate (e.g. PowerShell `.\venv\Scripts\Activate.ps1`).
+- **Workflow after creating the venv:** Always (1) activate the venv, (2) run `python -m pip install --upgrade pip`, then (3) install from the requirement file: `pip install -r requirements.txt`. Do not install libraries individually; add them to `requirements.txt` and install from that file.
+- **Pin versions** in `requirements.txt` to avoid version conflicts (e.g. `package==1.2.3`). Do not use unversioned or loose version ranges during development.
+- **Add or upgrade packages:** When adding or upgrading a package, check the **target version’s** docs and API (PyPI, official docs). Do not assume the old API still works (especially across major versions).
+  - **Add:** Add a line to `requirements.txt` (e.g. `package==1.2.3`), then run `pip install -r requirements.txt`.
+  - **Upgrade:** After checking the target version’s docs, run `pip install --upgrade <package>`, then update `requirements.txt` with the new version (e.g. from `pip freeze`).
+- **When the environment works:** run `pip freeze > requirements.txt` (or update `requirements.txt` with that output) to record exact versions.
+- **Lock file (full dependency tree):** generate or use a lock file (e.g. Pipenv `Pipfile.lock`, Poetry `poetry.lock`, or a committed `pip freeze` output) **only after the user explicitly gives the final completion instruction.** Do not create or update the lock file before that.
+
+
+## Git Operations
+
+NEVER perform git commit, push, or other git operations without explicit user permission.
+
+- **ALWAYS check current branch** before making changes with `git branch` or `git status`
+  - If the branch is different from expected, ask the user which branch to use
+  - User may be working on multiple branches in parallel
+- **Create a feature branch** before starting implementation work
+  - Commit after each meaningful change (e.g., schema done → commit, utility functions done → commit)
+  - This makes PRs easier to review and enables incremental progress tracking
+- Always ask before running: `git commit`, `git push`, `git merge`, `git rebase`, etc.
+- Read-only operations like `git status`, `git diff`, `git log` are OK
+- NEVER use `git add .` or `git add <directory>` - always add files individually
+- There may be work-in-progress files that should not be committed
+- NEVER delete untracked files - they may be temporary work files or intentionally kept outside version control
+- Commit message prefixes: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
+- NEVER push directly to main. Always create a feature branch and open a PR
+- When asked to 'create a PR' or 'PR、マージ', this means CREATE a pull request, not merge it
+- Always confirm the correct default/target branch before creating PRs
+- When merging PRs, use merge commit (`--merge`). Do NOT use squash merge
+- NEVER use `git rebase`
+- NEVER use `git push --force`
+
+## Change Scope Rules
+
+- Only make changes that were explicitly requested. Do NOT autonomously add features, tools, packages, or content
+- If you think something additional should be added, ASK first
+- Do not over-elaborate PR comments, commit messages, or documentation — keep them concise unless asked otherwise
+
+## Debugging Approach
+
+- When a test or command fails, diagnose the ROOT CAUSE before attempting fixes
+- Do NOT try quick-fix approaches (hardcoding values, JSON workarounds) — properly investigate the issue first
+- Check git history/diffs when investigating regressions
+- When user reports a failing command, understand what they're asking before jumping to debug
+
+## Code Quality
+
+After making code changes, always run:
+
+1. `ruff format .` - Format code with Ruff
+2. `ruff check .` - Check for linting errors
+3. `pytest` - Run tests to verify the project works
+
+## Documentation Maintenance
+
+When implementing or modifying CLI commands or other user-facing features:
+
+- **Always check README.md** after changes and update it to reflect the correct specification
+- Ensure command examples, options, and usage instructions are accurate
+- Update CLAUDE.md/AGENTS.md if they contain relevant CLI documentation
+- When creating web documentation, use the project’s frontend stack (e.g. HTML/CSS/TypeScript); use plain markdown only when explicitly asked
+- When documenting APIs or tools, VERIFY the actual implementation before writing — do not guess API names or parameters
+
+## New Project Setup
+
+When creating a new project under ClaudeCodeProject, run:
+
+```bash
+python scripts/init_project.py <project_name>
+```
+
+(from the **ClaudeCodeProject** root). This creates `ClaudeCodeProject/<project_name>/` with README.md, requirements.txt, .env.example, .gitignore, src/, tests/, and claude.md. You can also refer to this as `/init-project`.
+
+## Coding Style
+
+### Philosophy: Code for Human Comprehension
+
+Human context and memory are limited. Always write code with this in mind:
+
+- **Compact functions**: Split into small, focused functions that humans can fully comprehend at a glance
+- **Clear naming**: Function and variable names should tell a story; a beginner should understand the flow
+- **Minimal scope**: Keep variable scope as small as possible to reduce cognitive load
+- **Readable flow**: Code should read like a narrative - the sequence of function calls and variable assignments should make the intent obvious
+
+### Rules (Python / general)
+
+- Keep functions under 20 lines; split into smaller functions if needed
+- Prefer comprehensions and built-ins (`map`, `filter`, `itertools`) where they improve readability; otherwise clear loops are fine
+- Prefer `async`/`await` (e.g. `asyncio`) over callback chains for async code
+- Use type hints; avoid untyped public APIs and `Any` where a concrete type is known
+- No magic numbers; use named constants (e.g. module-level `UPPER_SNAKE_CASE`)
+- Include units in names when relevant (e.g. `timeout_sec`, `distance_km`)
+- Follow DRY (Don't Repeat Yourself)
+- **Error handling:** Use try/except for operations that can fail. For network/API calls use timeouts and clear error handling; raise or log with context (URL, path, operation)
+- **Browser (HTML, CSS, TypeScript):** Frontend is HTML, CSS, and TypeScript. The rules below apply when editing that code
+
+## Browser / Frontend (HTML, CSS, TypeScript)
+
+- Use **plain HTML** and **CSS** for structure and styling; use **TypeScript** for behavior (no framework required unless the project chooses one)
+- Prefer relative paths for imports; avoid alias paths like `@/` unless the build is configured for them
+- Never render unsanitized user input as HTML (no `innerHTML` with raw user data); use escaping or safe APIs
+- Keep user-facing strings out of inline HTML/TS when possible (e.g. data attributes, JSON, or a small i18n layer)
+- Use explicit types in TypeScript; avoid `any`. Prefer `const` over `let`; do not use `var`
+- Prefer `async`/`await` over `.then()` for async code. Use `AbortController` and timeouts for `fetch`/API calls
+- No magic numbers; use named constants. Include units in names when applicable (e.g. `timeout_ms`)
+
+## Testing
+
+**Python**
+- Use **pytest**. Mock external APIs so tests run without API keys
+- Unit tests: cover happy path, edge cases, corner cases, boundary cases, empty/None, invalid input, error cases, negative cases, regression tests
+- For CLI/output integration tests: use **golden tests** (expected output in git; compare in CI; update only when output intentionally changes)
+- Layout: `tests/` at repo root; `test_<module>.py` or `test_<feature>.py`; subdirs like `tests/api/`, `tests/utils/` if needed. Add a `pytest` (or `test`) entry in `pyproject.toml` or `setup.cfg` and run in CI
+
+**Frontend (TypeScript / browser)**
+- If the project adds TS unit tests, use a runner that fits the stack (e.g. Vitest, Jest). Same coverage ideas: happy path, edge, boundary, errors, regression. Mock network/APIs
+
+### CI / Cross-Platform Compatibility
+
+- CI should run on **Linux, Windows, and macOS** whenever possible
+- Use **`pathlib.Path`** or `os.path` (`os.path.join`, `os.path.normpath`); prefer `pathlib` in new code. No hardcoded `/` or `\\`
+- Avoid shell-only commands in CI/test scripts; use Python or cross-platform tools (e.g. `shutil`, `pathlib`) instead of `rm -rf`, `cp`, etc.
+- Do not rely on case-sensitive file systems. Use `sys.platform` or `platform` when platform-specific logic is needed
+- In GitHub Actions, include all three runners when relevant:
+  ```yaml
+  strategy:
+    matrix:
+      os: [ubuntu-latest, windows-latest, macos-latest]
+  ```
+
+## Package Release
+
+- When releasing a **Python** package (e.g. to PyPI), use the project’s release process (version bump, changelog, tag, build, upload). Refer to `/publish` or the project’s release doc if defined
+- (npm/Node packages are out of scope for this Python-based setup)
+
+## Web Design with Playwright
+
+When modifying web design (CSS, HTML, layouts):
+
+1. Use `browser_navigate` to open the page
+2. Use `browser_snapshot` to get DOM structure (preferred for understanding layout)
+3. Use `browser_take_screenshot` to capture visual state
+4. Make code changes
+5. Refresh and verify with screenshot
+
+Useful tools:
+- `browser_resize` – Test responsive design at different breakpoints
+- `browser_evaluate` – Inspect computed styles via JavaScript
+
+## TypeScript Best Practices (browser / frontend)
+
+- Avoid `as` casts; use type guards (e.g. `function isXxx(x: unknown): x is Type { ... }`)
+- Reuse types and utilities from the codebase or libraries instead of redefining them
+- Prefer inferring types from schemas (e.g. Zod) when you use them; don’t duplicate local types
+- When building strings, prefer list `push` + `join` over repeated `+=` in a loop
+- Keep pure data transformation in separate functions (or modules) for reuse and testing
+- Use clear names for formats/modes (e.g. “object format” vs “text format”), not “new/legacy”
+- When upgrading or adding packages, check the **target** version’s API; don’t assume old APIs still work
+
+## Continuous Learning
+
+When learning something new during a session that should be remembered:
+1. Confirm with the user before adding to this file
+2. Add the learning to the appropriate section (or create a new section if needed)
+3. Keep entries concise and actionable
+
+## Automation Proposals
+
+When the same instruction or pattern is given 2+ times in a session:
+1. Recognize the repetition and propose automation
+2. Choose the most appropriate method:
+   - **CLAUDE.md**: For rules, guidelines, or workflows (e.g., release process, coding standards)
+   - **Skill/Command**: For executable actions that can be parameterized (e.g., `/release`, `/deploy`)
+   - **Script**: For complex multi-step operations that benefit from scripting
+3. Explain the trade-offs and let the user decide
+4. After implementation, confirm it works as expected
