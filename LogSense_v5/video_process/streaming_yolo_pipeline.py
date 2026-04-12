@@ -114,9 +114,12 @@ class StreamingYoloPipeline:
         elapsed_ms = (now - self._last_infer_time) * 1000.0
         run_infer = self._min_interval_ms <= 0 or elapsed_ms >= self._min_interval_ms
 
+        infer_ms: Optional[float] = None
         if run_infer:
             self._last_infer_time = now
+            t_inf0 = time.perf_counter()
             dets = predict_frame(self.model, diff_bgr, conf=self._conf)
+            infer_ms = (time.perf_counter() - t_inf0) * 1000.0
             dicts = detections_to_dicts(dets)
             dicts = refine_detections_3dgs(diff_bgr, dicts)
             dets2: List[Detection] = []
@@ -153,4 +156,5 @@ class StreamingYoloPipeline:
             "detections": list(self._last_detections),
             "meta": pack["meta"],
             "inference_ran": run_infer,
+            "infer_ms": infer_ms,
         }
