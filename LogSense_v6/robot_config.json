@@ -1,0 +1,30 @@
+{
+  "llm": {
+    "model_id": "Qwen/Qwen2.5-VL-3B-Instruct"
+  },
+  "memory": {
+    "state_path": "robot_data/robot_state.json",
+    "log_path": "robot_data/memory.jsonl"
+  },
+  "vision": {
+    "enable": true,
+    "raw_yolo_every_ticks": 15,
+    "diff_yolo_every_ticks": 15,
+    "raw_yolo_conf": 0.35,
+    "caption": {
+      "auto_enabled": true,
+      "motion_trigger_ratio": 0.06,
+      "cooldown_sec": 20.0,
+      "prompt": "この画像に写っているものが何をしているか、日本語で一文だけで説明してください。"
+    }
+  },
+  "face": {
+    "image_dir": "robot_data/images",
+    "expressions": {
+      "normal": "dog.png",
+      "noticed": "notice.png",
+      "happy": "smile.png",
+      "worried": "worry.png"
+    }
+  }
+}
