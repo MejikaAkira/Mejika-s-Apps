@@ -61,9 +61,7 @@ _CAPTION_INTERVAL_MIN_SEC = 3  # min live-commentary interval (spinbox lower bou
 _CAPTION_INTERVAL_MAX_SEC = 300  # max live-commentary interval (spinbox upper bound)
 _MAX_VLM_IMAGE_SIDE = 768  # downscale to this longest side before the VLM
 # User-facing caption prompt (Japanese on purpose).
-_DEFAULT_CAPTION_PROMPT = (
-    "この画像に写っているものが何をしているか、日本語で一文だけで説明してください。"
-)
+_DEFAULT_CAPTION_PROMPT = "この画像に写っているものが何か、それは何をしているか、日本語で一文だけで説明してください。"
 
 
 def load_robot_config(path: Path = _CONFIG_PATH) -> dict:
@@ -222,9 +220,19 @@ class RobotMainWindow(QMainWindow):
 
     # --- chat ---------------------------------------------------------------
 
-    def _chat_context(self) -> tuple[Optional[str], Optional[str]]:
-        """Called by ChatPanel on send. Returns (perception, memory) summaries."""
-        return self._perception_summary(), self.memory.summary()
+    def _chat_context(self) -> tuple[Optional[str], Optional[str], Optional[bytes]]:
+        """Called by ChatPanel on send.
+
+        Returns (perception summary, memory summary, current frame as JPEG).
+        The frame lets the model answer from the actual image; it is None while
+        not watching, so chat stays text-only (fast) in that case.
+        """
+        image_bytes = (
+            self._encode_for_vlm(self._current_frame)
+            if self._current_frame is not None
+            else None
+        )
+        return self._perception_summary(), self.memory.summary(), image_bytes
 
     def _perception_summary(self) -> str:
         """YOLO/diff facts then the VLM guess, in facts-then-guess order."""
@@ -302,6 +310,7 @@ class RobotMainWindow(QMainWindow):
         frame = self._latest_frame()
         if frame is None:
             return
+        self._current_frame = frame  # latest frame for chat / "look now"
         now = datetime.now()
         self.original_widget.update_frame(frame, now)  # always show the video
         # Diff display runs every frame on CPU (not affected by YOLO/LLM load).

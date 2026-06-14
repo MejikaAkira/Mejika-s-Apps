@@ -106,13 +106,21 @@ class OllamaClient:
         history: Optional[list[ChatTurn]] = None,
         perception_summary: Optional[str] = None,
         memory_summary: Optional[str] = None,
+        image_bytes: Optional[bytes] = None,
     ) -> Iterator[str]:
-        """Yield reply tokens one by one (the emotion tag is included as-is)."""
+        """Yield reply tokens one by one (the emotion tag is included as-is).
+
+        When image_bytes is given, it is attached to the user turn so the model
+        can answer from the actual frame (kept for interface parity with the
+        Qwen client).
+        """
         messages = self._build_messages(
             user_text, history or [], perception_summary, memory_summary
         )
+        if image_bytes:
+            messages[-1]["images"] = [image_bytes]
         stream = self._client.chat(
-            model=self.model,
+            model=self._vision_model() if image_bytes else self.model,
             messages=messages,
             stream=True,
             keep_alive=self.keep_alive,

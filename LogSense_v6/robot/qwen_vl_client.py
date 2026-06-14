@@ -81,12 +81,17 @@ class QwenVLClient:
         history: list[ChatTurn],
         perception_summary: Optional[str],
         memory_summary: Optional[str],
+        image: Optional[Image.Image] = None,
     ) -> list[dict]:
         system = self.persona
         if memory_summary:
             system += f"\n\n【これまでの記憶】\n{memory_summary}"
         if perception_summary:
             system += f"\n\n【今カメラで見えているもの】\n{perception_summary}"
+        if image is not None:
+            system += (
+                "\n\n添付されたカメラ画像を実際に見て、事実に基づいて答えてください。"
+            )
         messages: list[dict] = [
             {"role": "system", "content": [{"type": "text", "text": system}]}
         ]
@@ -94,9 +99,11 @@ class QwenVLClient:
             messages.append(
                 {"role": turn.role, "content": [{"type": "text", "text": turn.content}]}
             )
-        messages.append(
-            {"role": "user", "content": [{"type": "text", "text": user_text}]}
-        )
+        user_content: list[dict] = []
+        if image is not None:
+            user_content.append({"type": "image", "image": image})
+        user_content.append({"type": "text", "text": user_text})
+        messages.append({"role": "user", "content": user_content})
         return messages
 
     def chat_stream(
@@ -105,19 +112,40 @@ class QwenVLClient:
         history: Optional[list[ChatTurn]] = None,
         perception_summary: Optional[str] = None,
         memory_summary: Optional[str] = None,
+        image_bytes: Optional[bytes] = None,
     ) -> Iterator[str]:
-        """Yield reply tokens one by one (the emotion tag is included)."""
+        """Yield reply tokens one by one (the emotion tag is included).
+
+        When image_bytes is given, the current camera frame is attached to the
+        user turn so the model answers from the actual pixels, not just the
+        text summary (slower: image prefill, but grounded on what it sees).
+        """
         with self._lock:
             self._ensure_loaded()
+            image = (
+                Image.open(io.BytesIO(image_bytes)).convert("RGB")
+                if image_bytes
+                else None
+            )
             messages = self._build_messages(
-                user_text, history or [], perception_summary, memory_summary
+                user_text, history or [], perception_summary, memory_summary, image
             )
             text = self._processor.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True
             )
-            inputs = self._processor(text=[text], padding=True, return_tensors="pt").to(
-                self.device
-            )
+            if image is not None:
+                image_inputs, video_inputs = process_vision_info(messages)
+                inputs = self._processor(
+                    text=[text],
+                    images=image_inputs,
+                    videos=video_inputs,
+                    padding=True,
+                    return_tensors="pt",
+                ).to(self.device)
+            else:
+                inputs = self._processor(
+                    text=[text], padding=True, return_tensors="pt"
+                ).to(self.device)
             streamer = TextIteratorStreamer(
                 self._processor.tokenizer, skip_prompt=True, skip_special_tokens=True
             )

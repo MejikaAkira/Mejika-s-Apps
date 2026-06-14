@@ -25,8 +25,9 @@ from PyQt6.QtWidgets import (
 from robot.emotion import Emotion
 from robot.llm_client import ChatTurn, split_emotion_tag
 
-# Context provider: returns (perception_summary, memory_summary).
-ContextProvider = Callable[[], tuple[Optional[str], Optional[str]]]
+# Context provider: returns (perception_summary, memory_summary, image_bytes).
+# image_bytes is the current camera frame (JPEG) or None when not watching.
+ContextProvider = Callable[[], tuple[Optional[str], Optional[str], Optional[bytes]]]
 
 
 class LlmWorker(QThread):
@@ -43,6 +44,7 @@ class LlmWorker(QThread):
         history: list[ChatTurn],
         perception_summary: Optional[str],
         memory_summary: Optional[str],
+        image_bytes: Optional[bytes] = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -51,6 +53,7 @@ class LlmWorker(QThread):
         self._history = history
         self._perception_summary = perception_summary
         self._memory_summary = memory_summary
+        self._image_bytes = image_bytes
 
     def run(self) -> None:
         chunks: list[str] = []
@@ -60,6 +63,7 @@ class LlmWorker(QThread):
                 self._history,
                 self._perception_summary,
                 self._memory_summary,
+                self._image_bytes,
             ):
                 chunks.append(piece)
                 self.token_received.emit(piece)
@@ -115,8 +119,8 @@ class ChatPanel(QWidget):
         self.history_view.append("ロビ: ")
         self._pending_user_text = user_text
 
-        perception_summary, memory_summary = (
-            self._context_provider() if self._context_provider else (None, None)
+        perception_summary, memory_summary, image_bytes = (
+            self._context_provider() if self._context_provider else (None, None, None)
         )
         self._worker = LlmWorker(
             self._client,
@@ -124,6 +128,7 @@ class ChatPanel(QWidget):
             list(self._history),
             perception_summary,
             memory_summary,
+            image_bytes,
         )
         self._worker.token_received.connect(self._on_token)
         self._worker.completed.connect(self._on_completed)
