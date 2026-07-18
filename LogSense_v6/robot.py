@@ -53,6 +53,8 @@ from robot.face_widget import FaceWidget
 from robot.memory import MemoryStore
 from robot.perception_bridge import PerceptionBridge
 from robot.qwen_vl_client import QwenVLClient
+from robot.tts_client import TtsClient, build_tts_client
+from robot.tts_worker import TtsWorker
 
 _CONFIG_PATH = Path(__file__).parent / "robot_config.json"
 _FRAME_INTERVAL_MS = 33  # about 30 FPS
@@ -71,6 +73,13 @@ def load_robot_config(path: Path = _CONFIG_PATH) -> dict:
     return {
         "llm": {"model_id": "Qwen/Qwen2.5-VL-3B-Instruct"},
         "vision": {"enable": True},
+        "tts": {
+            "enable": True,
+            "variant": "custom_voice",
+            "model_id": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+            "language": "Japanese",
+            "speaker": "Ono_Anna",
+        },
     }
 
 
@@ -102,6 +111,7 @@ class RobotMainWindow(QMainWindow):
         )
         self.bridge = PerceptionBridge()
         self._load_vision_settings()
+        self._load_tts_settings(root)
 
     def _load_vision_settings(self) -> None:
         vis = self.config.get("vision", {})
@@ -113,6 +123,20 @@ class RobotMainWindow(QMainWindow):
         self._caption_motion_ratio = float(cap.get("motion_trigger_ratio", 0.06))
         self._caption_cooldown_sec = float(cap.get("cooldown_sec", 20.0))
         self._caption_prompt = cap.get("prompt", _DEFAULT_CAPTION_PROMPT)
+
+    def _load_tts_settings(self, root: Path) -> None:
+        tts_cfg = self.config.get("tts", {})
+        self._tts_enabled_default = bool(tts_cfg.get("enable", True))
+        self.tts: Optional[TtsClient] = None
+        self._tts_worker: Optional[TtsWorker] = None
+        self._tts_ready = False
+        self._tts_synth_busy = False
+        self._tts_init_error: Optional[str] = None
+        try:
+            self.tts = build_tts_client(tts_cfg, root)
+        except Exception as exc:
+            self.tts = None
+            self._tts_init_error = str(exc)
 
     def _init_ui(self) -> None:
         self.setWindowTitle("LogSense Robot - ロビ")
@@ -153,6 +177,12 @@ class RobotMainWindow(QMainWindow):
         self.caption_interval_spin.setValue(int(self._caption_cooldown_sec))
         self.caption_interval_spin.setSuffix(" 秒")
         controls.addWidget(self.caption_interval_spin)
+
+        self.tts_check = QCheckBox("音声読み上げ")
+        self.tts_check.setToolTip("チャット返答と実況を Qwen3-TTS で読み上げます")
+        self.tts_check.setChecked(self._tts_enabled_default and self.tts is not None)
+        self.tts_check.setEnabled(self.tts is not None)
+        controls.addWidget(self.tts_check)
 
         controls.addStretch()
         layout.addLayout(controls)
@@ -205,18 +235,39 @@ class RobotMainWindow(QMainWindow):
         self.timer.setInterval(_FRAME_INTERVAL_MS)
 
     def _start_warmup(self) -> None:
-        """Preload the model in the background to reduce first-response latency."""
+        """Preload VL then TTS in the background to reduce first-response latency."""
         self.statusBar().showMessage("ロビを起こしています…(モデル準備中)")
         self._warmup_worker = WarmupWorker(self.client)
-        self._warmup_worker.done.connect(
-            lambda: self.statusBar().showMessage(
-                f"準備完了 (Lv{self.memory.state.level})"
-            )
-        )
+        self._warmup_worker.done.connect(self._on_vl_warmup_done)
         self._warmup_worker.failed.connect(
             lambda msg: self.statusBar().showMessage(f"モデル準備に失敗: {msg}")
         )
         self._warmup_worker.start()
+
+    def _on_vl_warmup_done(self) -> None:
+        if self.tts is None:
+            msg = f"準備完了 (Lv{self.memory.state.level})"
+            if self._tts_init_error:
+                msg += f" / TTS無効: {self._tts_init_error}"
+            self.statusBar().showMessage(msg)
+            return
+        self.statusBar().showMessage("ロビを起こしています…(音声モデル準備中)")
+        self._tts_warmup_worker = WarmupWorker(self.tts)
+        self._tts_warmup_worker.done.connect(self._on_tts_warmup_done)
+        self._tts_warmup_worker.failed.connect(self._on_tts_warmup_failed)
+        self._tts_warmup_worker.start()
+
+    def _on_tts_warmup_done(self) -> None:
+        self._tts_ready = True
+        self.statusBar().showMessage(f"準備完了 (Lv{self.memory.state.level}) / 音声OK")
+
+    def _on_tts_warmup_failed(self, message: str) -> None:
+        self._tts_ready = False
+        self.tts_check.setChecked(False)
+        self.tts_check.setEnabled(False)
+        self.statusBar().showMessage(
+            f"準備完了 (Lv{self.memory.state.level}) / TTS失敗: {message}"
+        )
 
     # --- chat ---------------------------------------------------------------
 
@@ -261,6 +312,44 @@ class RobotMainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"会話 {self.memory.state.chat_count}回 (Lv{self.memory.state.level})"
         )
+        self._speak(reply_text)
+
+    def _speak(self, text: str) -> None:
+        """Queue TTS for chat reply or live commentary (interrupt previous)."""
+        if not self.tts_check.isChecked() or self.tts is None or not self._tts_ready:
+            return
+        self._stop_tts_worker()
+        worker = TtsWorker(self.tts, text)
+        worker.synth_started.connect(self._on_tts_synth_started)
+        worker.synth_finished.connect(self._on_tts_synth_finished)
+        worker.failed.connect(
+            lambda msg: self.statusBar().showMessage(f"音声失敗: {msg}")
+        )
+        worker.finished.connect(self._clear_tts_worker)
+        self._tts_worker = worker
+        worker.start()
+
+    def _on_tts_synth_started(self) -> None:
+        self._tts_synth_busy = True
+
+    def _on_tts_synth_finished(self) -> None:
+        self._tts_synth_busy = False
+
+    def _stop_tts_worker(self) -> None:
+        if self._tts_worker is None:
+            return
+        self._tts_worker.requestInterruption()
+        self._tts_worker.wait(2000)
+        self._tts_worker = None
+        self._tts_synth_busy = False
+
+    def _clear_tts_worker(self) -> None:
+        self._tts_worker = None
+        self._tts_synth_busy = False
+
+    def _tts_busy(self) -> bool:
+        """True only while GPU synthesis runs (not during speaker playback)."""
+        return bool(getattr(self, "_tts_synth_busy", False))
 
     # --- vision -------------------------------------------------------------
 
@@ -303,8 +392,10 @@ class RobotMainWindow(QMainWindow):
         self.statusBar().showMessage("見守りを停止しました")
 
     def _gpu_busy(self) -> bool:
-        """Whether chat (LLM) or commentary (VLM) is running; used to serialize GPU."""
-        return self._caption_worker is not None or self.chat.is_busy()
+        """Whether chat, commentary, or TTS synthesis is using the GPU."""
+        return (
+            self._caption_worker is not None or self.chat.is_busy() or self._tts_busy()
+        )
 
     def _on_tick(self) -> None:
         frame = self._latest_frame()
@@ -436,6 +527,7 @@ class RobotMainWindow(QMainWindow):
         note = f"検出: {objects} / 動き: {motion} → {caption}"
         self.chat.add_robot_note(note)
         self.statusBar().showMessage("様子を見ました")
+        self._speak(note)
 
     def _on_caption_failed(self, message: str) -> None:
         self.statusBar().showMessage(f"様子の確認に失敗: {message}")
@@ -455,6 +547,7 @@ class RobotMainWindow(QMainWindow):
             self.face.set_emotion(decide(perception=perception))
 
     def closeEvent(self, event) -> None:
+        self._stop_tts_worker()
         self._on_stop()
         event.accept()
 

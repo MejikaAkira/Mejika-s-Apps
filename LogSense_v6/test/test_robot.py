@@ -139,3 +139,18 @@ def test_memory_level_rises_with_exp(tmp_path):
     for i in range(20):
         store.record_objects([f"obj{i}"])
     assert store.state.level > base_level
+
+
+# --- TTS text prep ---------------------------------------------------------
+
+
+def test_prepare_speak_text_strips_emotion_and_clamps():
+    from robot.tts_client import prepare_speak_text
+
+    body = prepare_speak_text("こんにちは！ [emotion:happy]")
+    assert "[emotion" not in body
+    assert "こんにちは" in body
+    long = "あ" * 300
+    clipped = prepare_speak_text(long, max_chars=50)
+    assert len(clipped) <= 51
+    assert prepare_speak_text("   ") == ""

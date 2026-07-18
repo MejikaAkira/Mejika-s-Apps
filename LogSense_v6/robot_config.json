@@ -21,10 +21,21 @@
   "face": {
     "image_dir": "robot_data/images",
     "expressions": {
-      "normal": "dog.png",
+      "normal": "robot.png",
       "noticed": "notice.png",
       "happy": "smile.png",
       "worried": "worry.png"
     }
+  },
+  "tts": {
+    "enable": true,
+    "variant": "custom_voice",
+    "model_id": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+    "language": "Japanese",
+    "speaker": "Ono_Anna",
+    "dtype": "bfloat16",
+    "max_chars": 240,
+    "ref_audio": "robot_data/voice/ref.wav",
+    "ref_text": ""
   }
 }
