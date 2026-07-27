@@ -101,7 +101,7 @@ class ChatPanel(QWidget):
 
         input_row = QHBoxLayout()
         self.input_edit = QLineEdit()
-        self.input_edit.setPlaceholderText("ロビに話しかける…")
+        self.input_edit.setPlaceholderText("ロギーに話しかける…")
         self.input_edit.returnPressed.connect(self._on_send)
         input_row.addWidget(self.input_edit)
         self.send_button = QPushButton("送信")
@@ -116,12 +116,14 @@ class ChatPanel(QWidget):
         self.input_edit.clear()
         self._set_busy(True)
         self._append_line(f"あなた: {user_text}")
-        self.history_view.append("ロビ: ")
+        self.history_view.append("ロギー: ")
         self._pending_user_text = user_text
 
         perception_summary, memory_summary, image_bytes = (
             self._context_provider() if self._context_provider else (None, None, None)
         )
+        # Parented so Qt owns the thread: dropping the Python reference while the
+        # thread still runs would destroy a running QThread (qFatal, hard crash).
         self._worker = LlmWorker(
             self._client,
             user_text,
@@ -129,10 +131,13 @@ class ChatPanel(QWidget):
             perception_summary,
             memory_summary,
             image_bytes,
+            self,
         )
         self._worker.token_received.connect(self._on_token)
         self._worker.completed.connect(self._on_completed)
         self._worker.failed.connect(self._on_failed)
+        self._worker.finished.connect(self._release_worker)
+        self._worker.finished.connect(self._worker.deleteLater)
         self._worker.start()
 
     def _on_token(self, piece: str) -> None:
@@ -159,13 +164,21 @@ class ChatPanel(QWidget):
     def _rewrite_last_reply(self, reply: str) -> None:
         """Replace the streamed (tag-included) body with the cleaned body."""
         text = self.history_view.toPlainText()
-        idx = text.rfind("ロビ: ")
+        idx = text.rfind("ロギー: ")
         if idx >= 0:
-            cleaned = text[:idx] + f"ロビ: {reply}"
+            cleaned = text[:idx] + f"ロギー: {reply}"
             self.history_view.setPlainText(cleaned)
 
     def _finish_worker(self) -> None:
+        """Reply is done: free the UI. The worker is released on `finished`."""
         self._set_busy(False)
+
+    def _release_worker(self) -> None:
+        """Forget the worker only once its thread has actually stopped.
+
+        Only one round runs at a time (`_on_send` refuses to start a second),
+        so this signal can only come from the tracked worker.
+        """
         self._worker = None
 
     def is_busy(self) -> bool:
@@ -174,7 +187,7 @@ class ChatPanel(QWidget):
 
     def add_robot_note(self, text: str) -> None:
         """Show a proactive robot line (e.g. live commentary) without the LLM."""
-        self.history_view.append(f"ロビ（実況）: {text}")
+        self.history_view.append(f"ロギー（実況）: {text}")
 
     def _append_line(self, line: str) -> None:
         self.history_view.append(line)
