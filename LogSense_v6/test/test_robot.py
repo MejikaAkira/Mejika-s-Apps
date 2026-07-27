@@ -145,7 +145,7 @@ def test_memory_level_rises_with_exp(tmp_path):
 
 
 def test_prepare_speak_text_strips_emotion_and_clamps():
-    from robot.tts_client import prepare_speak_text
+    from robot.tts_text import prepare_speak_text
 
     body = prepare_speak_text("こんにちは！ [emotion:happy]")
     assert "[emotion" not in body
@@ -154,3 +154,23 @@ def test_prepare_speak_text_strips_emotion_and_clamps():
     clipped = prepare_speak_text(long, max_chars=50)
     assert len(clipped) <= 51
     assert prepare_speak_text("   ") == ""
+
+
+def test_prepare_speak_text_normalizes_english():
+    from robot.tts_text import normalize_english_for_ja_tts, prepare_speak_text
+
+    assert "オーケー" in prepare_speak_text("状況は OK です。")
+    assert "ジーピーユー" in prepare_speak_text("GPU を使います。")
+    assert "ティーティーエス" in normalize_english_for_ja_tts("TTS")
+    # Unknown short token → letter spelling
+    assert "エックス" in normalize_english_for_ja_tts("XYZ")
+
+
+def test_split_sentences_keeps_delimiters():
+    from robot.tts_text import split_sentences
+
+    parts = split_sentences("こんにちは。音声テストです。")
+    assert parts == ["こんにちは。", "音声テストです。"]
+    assert split_sentences("") == []
+    one = split_sentences("句点なしの一文")
+    assert one == ["句点なしの一文"]

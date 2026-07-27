@@ -9,7 +9,7 @@ serialize generate calls with an internal lock so VL/TTS never corrupt state.
 
 from __future__ import annotations
 
-import re
+import sys
 import threading
 from pathlib import Path
 from typing import Any, Optional
@@ -17,23 +17,16 @@ from typing import Any, Optional
 import numpy as np
 import torch
 
+from robot.tts_text import prepare_speak_text
+
 _VARIANT_CUSTOM = "custom_voice"
 _VARIANT_CLONE = "voice_clone"
 _DEFAULT_CUSTOM_MODEL = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
 _DEFAULT_CLONE_MODEL = "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
 _MAX_CHARS = 240
-_EMOTION_TAG_RE = re.compile(r"\[emotion:\s*[a-zA-Z]+\s*\]")
-_WHITESPACE_RE = re.compile(r"\s+")
 
-
-def prepare_speak_text(text: str, max_chars: int = _MAX_CHARS) -> str:
-    """Strip tags/noise and clamp length for TTS."""
-    cleaned = _EMOTION_TAG_RE.sub("", text or "")
-    cleaned = cleaned.replace("→", "。").replace("/", "、")
-    cleaned = _WHITESPACE_RE.sub(" ", cleaned).strip()
-    if len(cleaned) > max_chars:
-        cleaned = cleaned[:max_chars].rstrip() + "…"
-    return cleaned
+# Re-export for existing imports.
+__all__ = ["TtsClient", "build_tts_client", "prepare_speak_text"]
 
 
 class TtsClient:
@@ -138,8 +131,8 @@ class TtsClient:
         return self._model.generate_voice_clone(**kwargs)
 
 
-def build_tts_client(cfg: dict, project_root: Path) -> TtsClient:
-    """Build TtsClient from robot_config.json['tts'] section."""
+def build_qwen_tts_client(cfg: dict, project_root: Path) -> TtsClient:
+    """In-process Qwen3-TTS client (legacy / tests). Prefer subprocess via engine=qwen."""
     variant = str(cfg.get("variant", _VARIANT_CUSTOM))
     ref_audio = cfg.get("ref_audio")
     if ref_audio and not Path(ref_audio).is_absolute():
@@ -154,3 +147,94 @@ def build_tts_client(cfg: dict, project_root: Path) -> TtsClient:
         dtype=str(cfg.get("dtype", "bfloat16")),
         max_chars=int(cfg.get("max_chars", _MAX_CHARS)),
     )
+
+
+def build_tts_client(cfg: dict, project_root: Path):
+    """Build TTS client from robot_config.json['tts'].
+
+    engine:
+      - qwen / voicevox / sbv2 → separate worker process (venv isolated)
+      - qwen_inplace → in-process TtsClient (tests / fallback)
+    Missing engine with flat keys → qwen_inplace (backward compatible).
+    """
+    from robot.tts_subprocess import SubprocessTtsClient, resolve_python
+
+    engine = str(cfg.get("engine", "")).strip().lower()
+    max_chars = int(cfg.get("max_chars", _MAX_CHARS))
+    workers = project_root / "robot" / "tts_workers"
+
+    if not engine:
+        # Legacy flat config used by robot.py
+        return build_qwen_tts_client(cfg, project_root)
+
+    if engine in {"qwen_inplace", "qwen-inplace"}:
+        qcfg = cfg.get("qwen") if isinstance(cfg.get("qwen"), dict) else cfg
+        return build_qwen_tts_client(qcfg, project_root)
+
+    if engine == "qwen":
+        qcfg = dict(cfg.get("qwen") or {})
+        # Allow top-level legacy keys as fallback.
+        for key in (
+            "variant",
+            "model_id",
+            "language",
+            "speaker",
+            "dtype",
+            "ref_audio",
+            "ref_text",
+            "max_chars",
+        ):
+            if key not in qcfg and key in cfg:
+                qcfg[key] = cfg[key]
+        if qcfg.get("ref_audio") and not Path(str(qcfg["ref_audio"])).is_absolute():
+            qcfg["ref_audio"] = str((project_root / qcfg["ref_audio"]).resolve())
+        qcfg.setdefault("max_chars", max_chars)
+        python = resolve_python(qcfg.get("python"), project_root, sys.executable)
+        return SubprocessTtsClient(
+            python_exe=python,
+            worker_script=workers / "qwen_worker.py",
+            worker_config=qcfg,
+            project_root=project_root,
+            max_chars=max_chars,
+        )
+
+    if engine in {"sbv2", "style_bert_vits2"}:
+        scfg = dict(cfg.get("sbv2") or {})
+        scfg.setdefault("device", "cuda")
+        scfg.setdefault("model", "jvnv-F1-jp")
+        scfg.setdefault("style", "Neutral")
+        scfg.setdefault("pitch_scale", 1.10)
+        scfg.setdefault("style_weight", 1.0)
+        scfg.setdefault("intonation_scale", 0.95)
+        scfg.setdefault("length", 0.95)
+        python = resolve_python(
+            scfg.get("python"), project_root, "venv_sbv2/Scripts/python.exe"
+        )
+        return SubprocessTtsClient(
+            python_exe=python,
+            worker_script=workers / "sbv2_worker.py",
+            worker_config=scfg,
+            project_root=project_root,
+            max_chars=max_chars,
+        )
+
+    if engine in {"voicevox", "vv"}:
+        vcfg = dict(cfg.get("voicevox") or {})
+        vcfg.setdefault("style_id", 3)
+        vcfg.setdefault("runtime_dir", "voicevox_runtime")
+        vcfg.setdefault("gentle_mimamori", True)
+        runtime = Path(str(vcfg["runtime_dir"]))
+        if not runtime.is_absolute():
+            vcfg["runtime_dir"] = str((project_root / runtime).resolve())
+        python = resolve_python(
+            vcfg.get("python"), project_root, "venv_vv/Scripts/python.exe"
+        )
+        return SubprocessTtsClient(
+            python_exe=python,
+            worker_script=workers / "vv_worker.py",
+            worker_config=vcfg,
+            project_root=project_root,
+            max_chars=max_chars,
+        )
+
+    raise ValueError(f"unknown tts.engine: {engine!r}")
