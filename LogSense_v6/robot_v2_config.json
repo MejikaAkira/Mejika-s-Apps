@@ -1,0 +1,60 @@
+{
+  "llm": {
+    "model_id": "Qwen/Qwen2.5-VL-3B-Instruct"
+  },
+  "memory": {
+    "state_path": "robot_data/robot_state.json",
+    "log_path": "robot_data/memory.jsonl"
+  },
+  "vision": {
+    "enable": true,
+    "raw_yolo_interval_ms": 90,
+    "diff_yolo_interval_ms": 90,
+    "raw_yolo_conf": 0.35,
+    "caption": {
+      "auto_enabled": true,
+      "motion_trigger_ratio": 0.06,
+      "cooldown_sec": 20.0,
+      "prompt": "この画像に写っているものが何をしているか、日本語で一文だけで説明してください。"
+    }
+  },
+  "face": {
+    "image_dir": "robot_data/images",
+    "expressions": {
+      "normal": "robot.png",
+      "noticed": "notice.png",
+      "happy": "smile.png",
+      "worried": "worry.png"
+    }
+  },
+  "tts": {
+    "enable": true,
+    "engine": "voicevox",
+    "max_chars": 240,
+    "qwen": {
+      "variant": "custom_voice",
+      "model_id": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+      "language": "Japanese",
+      "speaker": "Ono_Anna",
+      "dtype": "bfloat16",
+      "ref_audio": "robot_data/voice/ref.wav",
+      "ref_text": ""
+    },
+    "sbv2": {
+      "device": "cuda",
+      "model": "jvnv-F1-jp",
+      "style": "Neutral",
+      "pitch_scale": 1.1,
+      "style_weight": 1.0,
+      "intonation_scale": 0.95,
+      "length": 0.95,
+      "python": "venv_sbv2/Scripts/python.exe"
+    },
+    "voicevox": {
+      "style_id": 3,
+      "runtime_dir": "voicevox_runtime",
+      "gentle_mimamori": true,
+      "python": "venv_vv/Scripts/python.exe"
+    }
+  }
+}
