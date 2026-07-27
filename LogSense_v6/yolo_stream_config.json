@@ -1,0 +1,23 @@
+{
+  "gui": {
+    "enable": true,
+    "roi_gaussian_kernel": 15
+  },
+  "model": {
+    "weights": "models/yolo26s.pt",
+    "device": null,
+    "conf": 0.25
+  },
+  "difference": {
+    "use_alignment": false,
+    "absdiff_threshold": 25,
+    "morph_kernel": 5
+  },
+  "yolo": {
+    "min_interval_ms": 0
+  },
+  "logging": {
+    "enable": true,
+    "path": "video_outputs/yolo_detections.jsonl"
+  }
+}
