@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-LogSense Robot - GUI for the watch robot "ロビ".
+LogSense Robot - GUI for the watch robot "ロギー".
 
 Reuses app.py's video display widgets and RealtimeVideoProcessor, and adds the
 robot face (expression) and a chat panel on the right.
@@ -54,6 +54,7 @@ from robot.memory import MemoryStore
 from robot.perception_bridge import PerceptionBridge
 from robot.qwen_vl_client import QwenVLClient
 from robot.tts_client import TtsClient, build_tts_client
+from robot.tts_text import split_sentences
 from robot.tts_worker import TtsWorker
 
 _CONFIG_PATH = Path(__file__).parent / "robot_config.json"
@@ -117,6 +118,10 @@ class RobotMainWindow(QMainWindow):
         vis = self.config.get("vision", {})
         self._raw_yolo_every_ticks = int(vis.get("raw_yolo_every_ticks", 15))
         self._diff_every_ticks = int(vis.get("diff_yolo_every_ticks", 15))
+        # Both YOLO passes used to fire on the same tick, so one tick in 15 paid
+        # two inferences (32.5ms of the 33ms budget with yolo26s). Half a period
+        # of offset keeps each pass at the same rate while never colliding.
+        self._raw_yolo_offset_ticks = self._raw_yolo_every_ticks // 2
         self._raw_yolo_conf = float(vis.get("raw_yolo_conf", 0.35))
         cap = vis.get("caption", {})
         self._caption_auto_enabled = bool(cap.get("auto_enabled", True))
@@ -130,7 +135,13 @@ class RobotMainWindow(QMainWindow):
         self.tts: Optional[TtsClient] = None
         self._tts_worker: Optional[TtsWorker] = None
         self._tts_ready = False
+        self._tts_warming = False
         self._tts_synth_busy = False
+        self._pending_speak: Optional[str] = None
+        self._tts_sentence_queue: list[str] = []
+        self._tts_queue_index = 0
+        self._tts_queue_total = 0
+        self._tts_sentence_ok = False
         self._tts_init_error: Optional[str] = None
         try:
             self.tts = build_tts_client(tts_cfg, root)
@@ -139,7 +150,7 @@ class RobotMainWindow(QMainWindow):
             self._tts_init_error = str(exc)
 
     def _init_ui(self) -> None:
-        self.setWindowTitle("LogSense Robot - ロビ")
+        self.setWindowTitle("LogSense Robot - ロギー")
         self.setMinimumSize(1280, 720)
         central = QWidget()
         self.setCentralWidget(central)
@@ -166,7 +177,7 @@ class RobotMainWindow(QMainWindow):
         controls.addWidget(self.look_button)
 
         self.live_caption_check = QCheckBox("ライブ実況")
-        self.live_caption_check.setToolTip("動きを検知したらロビが自動で実況します")
+        self.live_caption_check.setToolTip("動きを検知したらロギーが自動で実況します")
         self.live_caption_check.setChecked(self._caption_auto_enabled)
         controls.addWidget(self.live_caption_check)
         controls.addWidget(QLabel("間隔:"))
@@ -183,6 +194,11 @@ class RobotMainWindow(QMainWindow):
         self.tts_check.setChecked(self._tts_enabled_default and self.tts is not None)
         self.tts_check.setEnabled(self.tts is not None)
         controls.addWidget(self.tts_check)
+        self.tts_test_button = QPushButton("音声テスト")
+        self.tts_test_button.setToolTip("短い定型文で読み上げを確認します")
+        self.tts_test_button.setEnabled(False)
+        self.tts_test_button.clicked.connect(self._on_tts_test)
+        controls.addWidget(self.tts_test_button)
 
         controls.addStretch()
         layout.addLayout(controls)
@@ -236,7 +252,7 @@ class RobotMainWindow(QMainWindow):
 
     def _start_warmup(self) -> None:
         """Preload VL then TTS in the background to reduce first-response latency."""
-        self.statusBar().showMessage("ロビを起こしています…(モデル準備中)")
+        self.statusBar().showMessage("ロギーを起こしています…(モデル準備中)")
         self._warmup_worker = WarmupWorker(self.client)
         self._warmup_worker.done.connect(self._on_vl_warmup_done)
         self._warmup_worker.failed.connect(
@@ -251,23 +267,40 @@ class RobotMainWindow(QMainWindow):
                 msg += f" / TTS無効: {self._tts_init_error}"
             self.statusBar().showMessage(msg)
             return
-        self.statusBar().showMessage("ロビを起こしています…(音声モデル準備中)")
+        self._tts_warming = True
+        self.statusBar().showMessage("ロギーを起こしています…(音声モデル準備中)")
+        print("[tts] warmup start", flush=True)
         self._tts_warmup_worker = WarmupWorker(self.tts)
         self._tts_warmup_worker.done.connect(self._on_tts_warmup_done)
         self._tts_warmup_worker.failed.connect(self._on_tts_warmup_failed)
         self._tts_warmup_worker.start()
 
     def _on_tts_warmup_done(self) -> None:
+        self._tts_warming = False
         self._tts_ready = True
+        self.tts_test_button.setEnabled(True)
+        print("[tts] warmup done", flush=True)
         self.statusBar().showMessage(f"準備完了 (Lv{self.memory.state.level}) / 音声OK")
+        pending = self._pending_speak
+        self._pending_speak = None
+        if pending:
+            self._speak(pending)
 
     def _on_tts_warmup_failed(self, message: str) -> None:
+        self._tts_warming = False
         self._tts_ready = False
+        self._pending_speak = None
         self.tts_check.setChecked(False)
         self.tts_check.setEnabled(False)
+        self.tts_test_button.setEnabled(False)
+        print(f"[tts] warmup failed: {message}", flush=True)
         self.statusBar().showMessage(
             f"準備完了 (Lv{self.memory.state.level}) / TTS失敗: {message}"
         )
+
+    def _on_tts_test(self) -> None:
+        self.tts_check.setChecked(True)
+        self._speak("こんにちは。音声テストです。")
 
     # --- chat ---------------------------------------------------------------
 
@@ -315,19 +348,68 @@ class RobotMainWindow(QMainWindow):
         self._speak(reply_text)
 
     def _speak(self, text: str) -> None:
-        """Queue TTS for chat reply or live commentary (interrupt previous)."""
-        if not self.tts_check.isChecked() or self.tts is None or not self._tts_ready:
+        """Split into sentences and speak them one-by-one (interrupt previous)."""
+        if self.tts is None:
+            self.statusBar().showMessage("音声なし（TTS未初期化）")
+            print("[tts] skip: client is None", flush=True)
             return
+        if not self.tts_check.isChecked():
+            print("[tts] skip: checkbox off", flush=True)
+            return
+        if not self._tts_ready:
+            self._pending_speak = text
+            self.statusBar().showMessage("音声モデル準備中…完了後に読み上げます")
+            print("[tts] queued until warmup done", flush=True)
+            return
+        chunks = split_sentences(text)
+        if not chunks:
+            print("[tts] skip: empty after split", flush=True)
+            return
+        self._pending_speak = None
         self._stop_tts_worker()
-        worker = TtsWorker(self.tts, text)
+        self._tts_sentence_queue = chunks
+        self._tts_queue_index = 0
+        self._tts_queue_total = len(chunks)
+        print(f"[tts] queue {self._tts_queue_total} sentence(s)", flush=True)
+        self._start_next_tts_sentence()
+
+    def _start_next_tts_sentence(self) -> None:
+        if self.tts is None or not self._tts_sentence_queue:
+            self._tts_sentence_queue = []
+            self.statusBar().showMessage("読み上げ完了")
+            return
+        sentence = self._tts_sentence_queue.pop(0)
+        self._tts_queue_index += 1
+        self._tts_sentence_ok = False
+        self.statusBar().showMessage(
+            f"読み上げ中 ({self._tts_queue_index}/{self._tts_queue_total})…"
+        )
+        worker = TtsWorker(self.tts, sentence)
         worker.synth_started.connect(self._on_tts_synth_started)
         worker.synth_finished.connect(self._on_tts_synth_finished)
-        worker.failed.connect(
-            lambda msg: self.statusBar().showMessage(f"音声失敗: {msg}")
-        )
-        worker.finished.connect(self._clear_tts_worker)
+        worker.failed.connect(self._on_tts_failed)
+        worker.finished_ok.connect(self._on_tts_sentence_ok)
+        worker.finished.connect(self._on_tts_thread_finished)
         self._tts_worker = worker
         worker.start()
+
+    def _on_tts_sentence_ok(self) -> None:
+        self._tts_sentence_ok = True
+
+    def _on_tts_thread_finished(self) -> None:
+        """Advance queue only after the worker thread has fully stopped."""
+        self._tts_worker = None
+        self._tts_synth_busy = False
+        if self._tts_sentence_ok and self._tts_sentence_queue:
+            self._start_next_tts_sentence()
+        elif self._tts_sentence_ok:
+            self.statusBar().showMessage("読み上げ完了")
+
+    def _on_tts_failed(self, message: str) -> None:
+        print(f"[tts] failed signal: {message}", flush=True)
+        self._tts_sentence_ok = False
+        self._tts_sentence_queue = []
+        self.statusBar().showMessage(f"音声失敗: {message}")
 
     def _on_tts_synth_started(self) -> None:
         self._tts_synth_busy = True
@@ -336,6 +418,10 @@ class RobotMainWindow(QMainWindow):
         self._tts_synth_busy = False
 
     def _stop_tts_worker(self) -> None:
+        self._tts_sentence_queue = []
+        self._tts_queue_index = 0
+        self._tts_queue_total = 0
+        self._tts_sentence_ok = False
         if self._tts_worker is None:
             return
         self._tts_worker.requestInterruption()
@@ -343,13 +429,9 @@ class RobotMainWindow(QMainWindow):
         self._tts_worker = None
         self._tts_synth_busy = False
 
-    def _clear_tts_worker(self) -> None:
-        self._tts_worker = None
-        self._tts_synth_busy = False
-
     def _tts_busy(self) -> bool:
-        """True only while GPU synthesis runs (not during speaker playback)."""
-        return bool(getattr(self, "_tts_synth_busy", False))
+        """True while TTS is warming up or synthesizing (not during playback)."""
+        return bool(self._tts_warming or self._tts_synth_busy)
 
     # --- vision -------------------------------------------------------------
 
@@ -464,7 +546,8 @@ class RobotMainWindow(QMainWindow):
         """YOLO on the original frame (throttled). Return the latest detection names."""
         if self.yolo_pipeline is None:
             return self._raw_names
-        if self._tick_count % self._raw_yolo_every_ticks != 0:
+        offset_tick = self._tick_count + self._raw_yolo_offset_ticks
+        if offset_tick % self._raw_yolo_every_ticks != 0:
             return self._raw_names
         try:
             dets = predict_frame(
@@ -523,11 +606,11 @@ class RobotMainWindow(QMainWindow):
         self._last_caption = caption
         objects = ", ".join(sorted(set(self._raw_names))) if self._raw_names else "なし"
         motion = self._motion_label(self._last_motion)
-        # Commentary order: facts (YOLO/diff) -> guess (VLM).
+        # Display: facts (YOLO/diff) then guess. Speak: caption only (short).
         note = f"検出: {objects} / 動き: {motion} → {caption}"
         self.chat.add_robot_note(note)
         self.statusBar().showMessage("様子を見ました")
-        self._speak(note)
+        self._speak(caption)
 
     def _on_caption_failed(self, message: str) -> None:
         self.statusBar().showMessage(f"様子の確認に失敗: {message}")

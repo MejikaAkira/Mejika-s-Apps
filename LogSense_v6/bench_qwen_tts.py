@@ -24,7 +24,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--text",
-        default="こんにちは、わたしはロビです。見守りを始めます。",
+        default="こんにちは、わたしはロギーです。見守りを始めます。",
     )
     args = parser.parse_args()
 
